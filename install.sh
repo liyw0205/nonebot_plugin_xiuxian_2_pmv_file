@@ -235,15 +235,6 @@ if [ $? -ne 0 ]; then
 fi
 show_status "激活 Python 虚拟环境" "success"
 
-show_progress "安装 nb-cli"
-pip install nb-cli
-if [ $? -eq 0 ]; then
-    show_status "安装 nb-cli" "success"
-else
-    show_status "安装 nb-cli" "failure"
-    exit 127
-fi
-
 pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple > /dev/null 2>&1
 show_status "设置 pip 镜像源为清华源" "success"
 
@@ -252,6 +243,15 @@ cd "$DIR" || {
     exit 127
 }
 show_status "进入安装目录 $DIR" "success"
+
+show_progress "安装 nb-cli"
+pip install nb-cli
+if [ $? -eq 0 ]; then
+    show_status "安装 nb-cli" "success"
+else
+    show_status "安装 nb-cli" "failure"
+    exit 127
+fi
 
 show_progress "安装 nonebot 驱动和 onebot.v11 适配器"
 nb driver install fastapi
