@@ -82,6 +82,25 @@ get_proxy_choice() {
     esac
 }
 
+# 检查并创建安装目录
+DIR="/root/xiu2"
+if [[ -d "$DIR" ]]; then
+    ui_print "red" "安装目录已存在，请手动删除：$DIR"
+    exit 127
+else
+    mkdir -p "$DIR" || {
+        show_status "创建安装主目录 $DIR" "failure"
+        exit 127
+    }
+    show_status "创建安装主目录 $DIR" "success"
+
+    mkdir -p "$DIR/src/plugins" || {
+        show_status "创建插件目录 $DIR/src/plugins" "failure"
+        exit 127
+    }
+    show_status "创建插件目录 $DIR/src/plugins" "success"
+fi
+
 # 系统依赖安装
 show_progress "更新系统及安装依赖"
 if command -v apt &> /dev/null; then
@@ -102,25 +121,6 @@ if [ $? -eq 0 ]; then
 else
     show_status "系统更新及依赖安装" "failure"
     exit 127
-fi
-
-# 检查并创建安装目录
-DIR="/root/xiu2"
-if [[ -d "$DIR" ]]; then
-    ui_print "red" "安装目录已存在，请手动删除：$DIR"
-    exit 127
-else
-    mkdir -p "$DIR" || {
-        show_status "创建安装主目录 $DIR" "failure"
-        exit 127
-    }
-    show_status "创建安装主目录 $DIR" "success"
-
-    mkdir -p "$DIR/src/plugins" || {
-        show_status "创建插件目录 $DIR/src/plugins" "failure"
-        exit 127
-    }
-    show_status "创建插件目录 $DIR/src/plugins" "success"
 fi
 
 # 用户输入配置信息
@@ -296,7 +296,7 @@ awk '{
                 } else {
                     print "  " \$0
                 }
-            }' "\$LOG_FILE"
+            }' "\$LOG_FILE" "\$LOG_FILE.format.log"
 }
 if [ "\$#" -eq 0 ]; then
     if screen -list | grep -q '\bxiu2\b'; then
