@@ -277,6 +277,7 @@ fi
 
 # 创建启动脚本
 cat <<EOF> "/bin/xiu2_start"
+export TZ=Asia/Shanghai
 source /root/myenv/bin/activate
 cd $DIR
 nb run
@@ -306,7 +307,7 @@ if [ "\$#" -eq 0 ]; then
         echo "       tail -f /root/xiu2.log"
     else
         echo "正在后台启动xiu2..."
-        screen -dmS xiu2 -L -Logfile /root/xiu2.log bash -c 'xiu2_start'
+        screen -U -dmS xiu2 -L -Logfile /root/xiu2.log bash -c 'xiu2_start'
         echo "已后台启动，通过以下命令查看当前状态："
         echo "       screen -r xiu2"
         echo "   或查看日志："
@@ -321,6 +322,12 @@ elif [ "\$#" -eq 1 ]; then
         else
             echo "xiu2未在运行"
         fi
+    elif [ "\$1" = "status" ]; then
+        if screen -list | grep -q '\bxiu2\b'; then
+            screen -U -r xiu2
+        else
+            echo "xiu2未在运行"
+        fi        
     elif [ "\$1" = "format" ]; then
         LOG_FILE="/root/xiu2.log"
         if [ -f "\$LOG_FILE" ]; then
