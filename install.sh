@@ -314,7 +314,22 @@ if [ "\$#" -eq 0 ]; then
         echo "       tail -f /root/xiu2.log"
     fi
 elif [ "\$#" -eq 1 ]; then
-    if [ "\$1" = "stop" ]; then
+    if [ "\$1" = "start" ]; then
+        if screen -list | grep -q '\bxiu2\b'; then
+            echo "xiu2已在后台运行"
+            echo "   您可以查看现有会话："
+            echo "       screen -r xiu2"
+            echo "   或查看日志："
+            echo "       tail -f /root/xiu2.log"
+        else
+            echo "正在后台启动xiu2..."
+            screen -U -dmS xiu2 -L -Logfile /root/xiu2.log bash -c 'xiu2_start'
+            echo "已后台启动，通过以下命令查看当前状态："
+            echo "       screen -r xiu2"
+            echo "   或查看日志："
+            echo "       tail -f /root/xiu2.log"
+        fi
+    elif [ "\$1" = "stop" ]; then
         if screen -list | grep -q '\bxiu2\b'; then
             echo "正在停止xiu2..."
             screen -X -S xiu2 quit
@@ -381,8 +396,9 @@ ui_print "green" "========================================"
 ui_print "green" "✓ 一键安装完成！"
 ui_print "green" "您可以使用以下命令："
 ui_print "white" "    xiu2              - 启动 xiu2（默认）"
-ui_print "white" "    xiu2 stop         - 停止 xiu2"
-ui_print "white" "    xiu2 format-log   - 格式化默认日志文件 /root/xiu2.log"
-ui_print "white" "    xiu2 format-log /path/to/logfile - 格式化指定的日志文件"
+ui_print "white" "    xiu2 status       - 停止 xiu2"
+ui_print "white" "    xiu2 stop         - 查看 xiu2"
+ui_print "white" "    xiu2 format      - 格式化默认日志文件 /root/xiu2.log"
+ui_print "white" "    xiu2 format /path/to/logfile - 格式化指定的日志文件"
 ui_print "green" "启动后，机器人日志将记录在 /root/xiu2.log"
 ui_print "green" "========================================"
