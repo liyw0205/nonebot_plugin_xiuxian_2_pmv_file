@@ -37,6 +37,11 @@ show_status() {
     fi
 }
 
+# 显示正在进行的操作
+show_progress() {
+    ui_print "blue" "正在 $1..."
+}
+
 # 读取用户输入的函数（带默认值）
 read_or() {
     local var_name="$1"
@@ -55,7 +60,7 @@ read_or() {
 get_proxy_choice() {
     ui_print "yellow" "请选择是否使用 Git / 下载代理："
     ui_print "white" "y/Y：使用默认代理（https://github.akams.cn）"
-    ui_print "white" "n/N 或 直接回车：使用代理（默认）"
+    ui_print "white" "n/N 或 直接回车：不使用代理（默认）"
     ui_print "white" "其他任意内容：自定义代理地址"
     echo
 
@@ -75,31 +80,32 @@ get_proxy_choice() {
             ui_print "green" "✓ 将使用自定义代理：$PROXY"
             ;;
     esac
-
-    echo "$PROXY"
 }
 
-# 设置代理环境变量
-set_proxy_env() {
-    local proxy="$1"
-    if [ -n "$proxy" ]; then
-        export http_proxy="$proxy"
-        export https_proxy="$proxy"
-        export HTTP_PROXY="$proxy"
-        export HTTPS_PROXY="$proxy"
-        ui_print "cyan" "→ 当前代理已设置为：$proxy"
-    else
-        unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
-        ui_print "cyan" "→ 当前未设置代理"
-    fi
-}
-
-# 脚本初始化：选择代理
-SELECTED_PROXY=$(get_proxy_choice)
-set_proxy_env "$SELECTED_PROXY"
+# 系统依赖安装
+show_progress "更新系统及安装依赖"
+if command -v apt &> /dev/null; then
+    # Debian/Ubuntu
+    apt update && apt upgrade -y && apt install -y screen curl wget git python3 python3-pip python3-venv
+elif command -v yum &> /dev/null; then
+    # CentOS/RHEL
+    yum update -y && yum install -y screen curl wget git python3 python3-pip python3-virtualenv
+elif command -v dnf &> /dev/null; then
+    # Fedora
+    dnf update -y && dnf install -y screen curl wget git python3 python3-pip python3-virtualenv
+else
+    ui_print "red" "不支持的包管理器，请手动安装必要的依赖。"
+    exit 127
+fi
+if [ $? -eq 0 ]; then
+    show_status "系统更新及依赖安装" "success"
+else
+    show_status "系统更新及依赖安装" "failure"
+    exit 127
+fi
 
 # 检查并创建安装目录
-DIR="/root/xiu2_bot"
+DIR="/root/xiu2"
 if [[ -d "$DIR" ]]; then
     ui_print "red" "安装目录已存在，请手动删除：$DIR"
     exit 127
@@ -118,17 +124,18 @@ else
 fi
 
 # 用户输入配置信息
+show_progress "获取用户配置信息"
 read_or SUPERUSERS "请输入主人QQ号（SUPERUSERS）" ""
 read_or NICKNAME "请输入机器人昵称（NICKNAME）" "堂堂"
 read_or PORT "请输入端口号（PORT）" "8080"
 
 # 写入配置文件
-cat <<EOF>> "$DIR/.env"
+cat <<EOF> "$DIR/.env"
 ENVIRONMENT=dev
 DRIVER=~fastapi+~httpx+~websockets+~aiohttp
 EOF
 
-cat <<EOF>> "$DIR/.env.dev"
+cat <<EOF> "$DIR/.env.dev"
 LOG_LEVEL=INFO
 
 SUPERUSERS = ["$SUPERUSERS"]
@@ -139,7 +146,7 @@ HOST = 0.0.0.0
 PORT = $PORT
 EOF
 
-cat <<EOF>> "$DIR/pyproject.toml"
+cat <<EOF> "$DIR/pyproject.toml"
 [project]
 name = "xiu2"
 version = "0.1.0"
@@ -171,24 +178,16 @@ nonebot-adapter-onebot = [
 "@local" = []
 EOF
 
-# 系统依赖安装
-ui_print "yellow" "正在更新系统并安装必要依赖..."
-apt update && apt upgrade -y && \
-apt install screen curl wget git python3 python3-pip python3-venv -y > /dev/null 2>&1
-if [ $? -eq 0 ]; then
-    show_status "系统更新及依赖安装" "success"
-else
-    show_status "系统更新及依赖安装" "failure"
-    exit 127
-fi
-
 # 设置时区
-ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime > /dev/null 2>&1
+ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 show_status "设置时区为 Asia/Shanghai (上海)" "success"
+
+# 设置代理
+get_proxy_choice
 
 # 克隆 nonebot xiu2插件仓库
 ui_print "yellow" "正在克隆 nonebot xiu2插件仓库..."
-git clone --depth=1 -b main https://github.akams.cn/https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv.git > /dev/null 2>&1
+git clone --depth=1 -b main $PROXY/https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv.git
 if [ $? -eq 0 ]; then
     show_status "Git 克隆 nonebot_plugin_xiuxian_2_pmv 仓库" "success"
 else
@@ -220,8 +219,7 @@ rm -rf /root/nonebot_plugin_xiuxian_2_pmv > /dev/null 2>&1
 show_status "清理临时克隆目录 /root/nonebot_plugin_xiuxian_2_pmv" "success"
 
 # 创建 Python 虚拟环境并安装依赖
-ui_print "yellow" "正在创建 Python 虚拟环境并安装依赖..."
-
+show_progress "创建 Python 虚拟环境 myenv"
 python3 -m venv myenv > /dev/null 2>&1
 if [ $? -eq 0 ]; then
     show_status "创建 Python 虚拟环境 myenv" "success"
@@ -237,7 +235,8 @@ if [ $? -ne 0 ]; then
 fi
 show_status "激活 Python 虚拟环境" "success"
 
-pip install nb-cli > /dev/null 2>&1
+show_progress "安装 nb-cli"
+pip install nb-cli
 if [ $? -eq 0 ]; then
     show_status "安装 nb-cli" "success"
 else
@@ -254,11 +253,12 @@ cd "$DIR" || {
 }
 show_status "进入安装目录 $DIR" "success"
 
-nb driver install fastapi > /dev/null 2>&1
-nb driver install httpx > /dev/null 2;&1
-nb driver install websockets > /dev/null 2>&1
-nb driver install aiohttp > /dev/null 2>&1
-nb adapter install onebot.v11 > /dev/null 2>&1
+show_progress "安装 nonebot 驱动和 onebot.v11 适配器"
+nb driver install fastapi
+nb driver install httpx
+nb driver install websockets
+nb driver install aiohttp
+nb adapter install onebot.v11
 
 if [ $? -eq 0 ]; then
     show_status "安装 nonebot 驱动和 onebot.v11 适配器" "success"
@@ -266,6 +266,7 @@ else
     show_status "安装 nonebot 驱动和 onebot.v11 适配器" "failure"
 fi
 
+show_progress "安装依赖项（来自 requirements.txt）"
 pip install -r requirements.txt > /dev/null 2>&1
 if [ $? -eq 0 ]; then
     show_status "安装依赖项（来自 requirements.txt）" "success"
@@ -275,14 +276,28 @@ else
 fi
 
 # 创建启动脚本
-cat <<EOF>> "/bin/xiu2_start"
+cat <<EOF> "/bin/xiu2_start"
 source /root/myenv/bin/activate
 cd $DIR
 nb run
 EOF
 
-cat <<EOF>> "/bin/xiu2"
-if [ "$#" -eq 0 ]; then
+# 创建启动脚本和格式化日志功能
+cat <<EOF> "/bin/xiu2"
+formatlog() {
+LOG_FILE="\$@"
+awk '{
+                # 移除颜色代码
+                gsub(/\033\\[[0-9;]*m/, "")
+                # 按时间戳分组（假设格式为 MM-DD HH:MM:SS）
+                if (/\#[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}/ || /[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}/) {
+                    print "\n" \$0 ""
+                } else {
+                    print "  " \$0
+                }
+            }' "\$LOG_FILE"
+}
+if [ "\$#" -eq 0 ]; then
     if screen -list | grep -q '\bxiu2\b'; then
         echo "xiu2已在后台运行"
         echo "   您可以查看现有会话："
@@ -297,23 +312,44 @@ if [ "$#" -eq 0 ]; then
         echo "   或查看日志："
         echo "       tail -f /root/xiu2.log"
     fi
-elif [ "$#" -eq 1 ] && [ "$1" = "stop" ]; then
-    if screen -list | grep -q '\bxiu2\b'; then
-        echo "正在停止xiu2..."
-        screen -X -S xiu2 quit
-        echo "xiu2已停止"
+elif [ "\$#" -eq 1 ]; then
+    if [ "\$1" = "stop" ]; then
+        if screen -list | grep -q '\bxiu2\b'; then
+            echo "正在停止xiu2..."
+            screen -X -S xiu2 quit
+            echo "xiu2已停止"
+        else
+            echo "xiu2未在运行"
+        fi
+    elif [ "\$1" = "format" ]; then
+        LOG_FILE="/root/xiu2.log"
+        if [ -f "\$LOG_FILE" ]; then
+            formatlog "\$LOG_FILE"
+        else
+            echo "错误：日志文件 \$LOG_FILE 不存在"
+        fi
     else
-        echo "xiu2未在运行"
+        echo "用法: xiu2 [start|stop|format [log_file]]"
+        echo "  start     - 启动 xiu2（默认，无需参数）"
+        echo "  stop      - 停止 xiu2"
+        echo "  format [log_file] - 格式化日志文件（默认: /root/xiu2.log）"
+    fi
+elif [ "\$#" -eq 2 ] && [ "\$1" = "format" ]; then
+    LOG_FILE="\$2"
+    if [ -f "\$LOG_FILE" ]; then
+        formatlog "\$LOG_FILE"
+    else
+        echo "错误：日志文件 \$LOG_FILE 不存在"
     fi
 else
-    echo "用法: xiu2 [start|stop]"
-    echo "  start  - 启动 xiu2（默认，无需参数）"
-    echo "  stop   - 停止 xiu2"
+    echo "用法: xiu2 [start|stop|format [log_file]]"
+    echo "  start     - 启动 xiu2（默认，无需参数）"
+    echo "  stop      - 停止 xiu2"
+    echo "  format [log_file] - 格式化日志文件（默认: /root/xiu2.log）"
 fi
 EOF
 
-
-cat <<EOF>> "/local/etc/logrotate.d/xiu2"
+cat <<EOF> "/etc/logrotate.d/xiu2"
 /root/xiu2.log {
     daily
     size 20M
@@ -336,8 +372,10 @@ show_status "创建启动脚本 /bin/xiu2_start 和 /bin/xiu2" "success"
 # 安装完成提示
 ui_print "green" "========================================"
 ui_print "green" "✓ 一键安装完成！"
-ui_print "green" "您可以使用以下命令启动机器人："
-ui_print "white" "    xiu2"
+ui_print "green" "您可以使用以下命令："
+ui_print "white" "    xiu2              - 启动 xiu2（默认）"
+ui_print "white" "    xiu2 stop         - 停止 xiu2"
+ui_print "white" "    xiu2 format-log   - 格式化默认日志文件 /root/xiu2.log"
+ui_print "white" "    xiu2 format-log /path/to/logfile - 格式化指定的日志文件"
 ui_print "green" "启动后，机器人日志将记录在 /root/xiu2.log"
-ui_print "green" "当前代理设置：$SELECTED_PROXY"
 ui_print "green" "========================================"
