@@ -56,28 +56,224 @@ read_or() {
     eval "$var_name=\"$input\""
 }
 
+# 测试代理可用性和延迟的函数
+test_proxy() {
+    local proxy_url="$1"
+    local target_host="github.com"
+    
+    # 从代理URL中提取主机名用于ping测试
+    local proxy_host=$(echo "$proxy_url" | sed -E 's|^https?://([^/:]+).*|\1|')
+    
+    # 检查ping命令是否可用
+    if ! command -v ping &> /dev/null; then
+        ui_print "yellow" "警告: ping命令不可用，跳过网络连通性测试"
+        return 0
+    fi
+    
+    local ping_time
+    
+    # 如果不能直接ping通，尝试ping代理服务器本身
+    if ping -c 1 -W 3 "$proxy_host" &> /dev/null; then
+        # 计算ping延迟
+        ping_time=$(ping -c 1 -W 3 "$proxy_host" | grep 'time=' | sed -E 's/.*time=([0-9.]+).*/\1/')
+        
+        # 如果没有获取到时间，给一个默认值
+        if [[ -z "$ping_time" ]]; then
+            ping_time="999"
+        fi
+        
+        echo "$ping_time"
+        return 0
+    else
+        echo "9999"
+        return 1
+    fi
+}
+
+# 获取可用代理列表并按延迟排序
+get_available_proxies() {
+    local proxies=(
+        "https://gh-proxy.net/"
+        "https://ghfile.geekertao.top/"
+        "https://git.yylx.win/"
+        "https://gh.llkk.cc/"
+        "https://ghproxy.net/"
+        "https://github.dpik.top/"
+        "https://hub.gitmirror.com/"
+        "https://gitproxy.click/"
+    )
+    
+    local proxy_latency=()
+    local total=${#proxies[@]}
+    local current=0
+    
+    ui_print "yellow" "正在测试代理服务器连通性和延迟..."
+    
+    for proxy in "${proxies[@]}"; do
+        current=$((current + 1))
+        printf "\r${BLUE}进度: %d/%d - 测试 %s${NC}" "$current" "$total" "$proxy"
+        
+        latency=$(test_proxy "$proxy")
+        proxy_latency+=("$latency:$proxy")
+        
+        if (( $(echo "$latency < 999" | bc -l) )); then
+            ui_print "green" "\n✓ $proxy 可达 (延迟: ${latency}ms)"
+        else
+            ui_print "red" "\n✗ $proxy 不可达"
+        fi
+    done
+    
+    echo
+    echo
+    
+    # 过滤出可用的代理并按延迟排序
+    local available_proxies=()
+    for item in "${proxy_latency[@]}"; do
+        latency=$(echo "$item" | cut -d':' -f1)
+        proxy=$(echo "$item" | cut -d':' -f2-)
+        if (( $(echo "$latency < 999" | bc -l) )); then
+            available_proxies+=("$latency:$proxy")
+        fi
+    done
+    
+    # 按延迟排序
+    IFS=$'\n' sorted_proxies=($(sort -t: -k1 -n <<< "${available_proxies[*]}"))
+    unset IFS
+    
+    if [ ${#sorted_proxies[@]} -eq 0 ]; then
+        ui_print "red" "没有找到可用的代理服务器！"
+        ui_print "yellow" "建议选择'不使用代理'或'自定义代理'"
+        return 1
+    else
+        ui_print "green" "找到 ${#sorted_proxies[@]} 个可用代理服务器（按延迟排序）："
+        for i in "${!sorted_proxies[@]}"; do
+            latency=$(echo "${sorted_proxies[$i]}" | cut -d':' -f1)
+            proxy=$(echo "${sorted_proxies[$i]}" | cut -d':' -f2-)
+            ui_print "cyan" "  $((i+1)). $proxy (延迟: ${latency}ms)"
+        done
+        echo
+        
+        # 提取排序后的代理地址
+        AVAILABLE_PROXIES=()
+        for item in "${sorted_proxies[@]}"; do
+            proxy=$(echo "$item" | cut -d':' -f2-)
+            AVAILABLE_PROXIES+=("$proxy")
+        done
+        return 0
+    fi
+}
+
+# 检查bc命令是否可用，如果不可用则安装或使用替代方案
+check_bc_command() {
+    if ! command -v bc &> /dev/null; then
+        ui_print "yellow" "检测到bc命令不可用，正在尝试安装..."
+        
+        if command -v apt &> /dev/null; then
+            apt update && apt install -y bc > /dev/null 2>&1
+        elif command -v yum &> /dev/null; then
+            yum install -y bc > /dev/null 2>&1
+        elif command -v dnf &> /dev/null; then
+            dnf install -y bc > /dev/null 2>&1
+        else
+            ui_print "yellow" "无法自动安装bc，将使用awk进行数值比较"
+            return 1
+        fi
+        
+        if command -v bc &> /dev/null; then
+            ui_print "green" "✓ bc安装成功"
+            return 0
+        else
+            ui_print "yellow" "bc安装失败，将使用awk进行数值比较"
+            return 1
+        fi
+    fi
+    return 0
+}
+
+# 数值比较函数（兼容没有bc的情况）
+compare_numbers() {
+    local num1=$1
+    local operator=$2
+    local num2=$3
+    
+    if command -v bc &> /dev/null; then
+        echo "$num1 $operator $num2" | bc -l
+    else
+        # 使用awk进行比较
+        awk "BEGIN {print ($num1 $operator $num2)}"
+    fi
+}
+
 # 询问用户是否使用代理
 get_proxy_choice() {
     ui_print "yellow" "请选择是否使用 Git / 下载代理："
-    ui_print "white" "y/Y：使用默认代理（https://github.akams.cn）"
-    ui_print "white" "n/N 或 直接回车：不使用代理（默认）"
-    ui_print "white" "其他任意内容：自定义代理地址"
+    ui_print "white" "1：自动选择延迟最低的可用代理（默认）"
+    ui_print "white" "2：从可用代理中选择特定代理"
+    ui_print "white" "3：不使用代理"
+    ui_print "white" "4：自定义代理地址"
     echo
 
-    read_or USE_PROXY "是否使用代理？(y/Y/n/N/自定义代理地址)" ""
+    read_or PROXY_CHOICE "请选择代理选项 (1-4)" "1"
 
     PROXY=""
-    case "$USE_PROXY" in
-        y|Y|"")
-            PROXY="https://github.akams.cn"
-            ui_print "green" "✓ 将使用默认代理：$PROXY"
+    case "$PROXY_CHOICE" in
+        1)
+            check_bc_command
+            if get_available_proxies; then
+                # 选择延迟最低的代理
+                PROXY="${AVAILABLE_PROXIES[0]}"
+                latency=$(echo "${sorted_proxies[0]}" | cut -d':' -f1)
+                ui_print "green" "✓ 自动选择最低延迟代理：$PROXY (延迟: ${latency}ms)"
+            else
+                ui_print "yellow" "未找到可用代理，将不使用代理"
+            fi
             ;;
-        n|N)
+        2)
+            check_bc_command
+            if get_available_proxies; then
+                echo
+                read_or PROXY_INDEX "请选择代理编号 (1-${#AVAILABLE_PROXIES[@]})" "1"
+                if [[ "$PROXY_INDEX" =~ ^[0-9]+$ ]] && [ "$PROXY_INDEX" -ge 1 ] && [ "$PROXY_INDEX" -le ${#AVAILABLE_PROXIES[@]} ]; then
+                    PROXY="${AVAILABLE_PROXIES[$((PROXY_INDEX-1))]}"
+                    # 显示选中代理的延迟
+                    for item in "${sorted_proxies[@]}"; do
+                        proxy_addr=$(echo "$item" | cut -d':' -f2-)
+                        if [[ "$proxy_addr" == "$PROXY" ]]; then
+                            latency=$(echo "$item" | cut -d':' -f1)
+                            ui_print "green" "✓ 已选择代理：$PROXY (延迟: ${latency}ms)"
+                            break
+                        fi
+                    done
+                else
+                    ui_print "red" "无效选择，将不使用代理"
+                fi
+            else
+                ui_print "yellow" "未找到可用代理，将不使用代理"
+                ui_print "cyan" "提示: 在Termux/proot环境中，GitHub可能可以直接访问"
+            fi
+            ;;
+        3)
             ui_print "green" "✓ 不使用代理"
             ;;
+        4)
+            read_or CUSTOM_PROXY "请输入自定义代理地址" ""
+            if [[ -n "$CUSTOM_PROXY" ]]; then
+                # 测试自定义代理
+                ui_print "blue" "正在测试自定义代理..."
+                check_bc_command
+                latency=$(test_proxy "$CUSTOM_PROXY")
+                if (( $(compare_numbers "$latency" "<" "999") )); then
+                    PROXY="$CUSTOM_PROXY"
+                    ui_print "green" "✓ 自定义代理可用：$PROXY (延迟: ${latency}ms)"
+                else
+                    ui_print "red" "✗ 自定义代理不可用，将不使用代理"
+                fi
+            else
+                ui_print "yellow" "未输入代理地址，将不使用代理"
+            fi
+            ;;
         *)
-            PROXY="$USE_PROXY"
-            ui_print "green" "✓ 将使用自定义代理：$PROXY"
+            ui_print "yellow" "无效选择，将不使用代理"
             ;;
     esac
 }
@@ -105,13 +301,13 @@ fi
 show_progress "更新系统及安装依赖"
 if command -v apt &> /dev/null; then
     # Debian/Ubuntu
-    apt update && apt upgrade -y && apt install -y screen curl wget git python3 python3-pip python3-venv
+    apt update && apt upgrade -y && apt install -y screen curl wget git python3 python3-pip python3-venv bc
 elif command -v yum &> /dev/null; then
     # CentOS/RHEL
-    yum update -y && yum install -y screen curl wget git python3 python3-pip python3-virtualenv
+    yum update -y && yum install -y screen curl wget git python3 python3-pip python3-virtualenv bc
 elif command -v dnf &> /dev/null; then
     # Fedora
-    dnf update -y && dnf install -y screen curl wget git python3 python3-pip python3-virtualenv
+    dnf update -y && dnf install -y screen curl wget git python3 python3-pip python3-virtualenv bc
 else
     ui_print "red" "不支持的包管理器，请手动安装必要的依赖。"
     exit 127
@@ -125,7 +321,7 @@ fi
 
 # 用户输入配置信息
 show_progress "获取用户配置信息"
-read_or SUPERUSERS "请输入主人QQ号（SUPERUSERS）" ""
+read_or SUPERUSERS "请输入主人QQ号（SUPERUSERS）" "123456"
 read_or NICKNAME "请输入机器人昵称（NICKNAME）" "堂堂"
 read_or PORT "请输入端口号（PORT）" "8080"
 
@@ -185,9 +381,18 @@ show_status "设置时区为 Asia/Shanghai (上海)" "success"
 # 设置代理
 get_proxy_choice
 
+# 构建git克隆URL
+GIT_URL="https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv.git"
+if [[ -n "$PROXY" ]]; then
+    GIT_CLONE_URL="$PROXY$GIT_URL"
+else
+    GIT_CLONE_URL="$GIT_URL"
+fi
+
 # 克隆 nonebot xiu2插件仓库
 ui_print "yellow" "正在克隆 nonebot xiu2插件仓库..."
-git clone --depth=1 -b main $PROXY/https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv.git
+ui_print "cyan" "使用URL: $GIT_CLONE_URL"
+git clone --depth=1 -b main "$GIT_CLONE_URL"
 if [ $? -eq 0 ]; then
     show_status "Git 克隆 nonebot_plugin_xiuxian_2_pmv 仓库" "success"
 else
@@ -396,8 +601,8 @@ ui_print "green" "========================================"
 ui_print "green" "✓ 一键安装完成！"
 ui_print "green" "您可以使用以下命令："
 ui_print "white" "    xiu2              - 启动 xiu2（默认）"
-ui_print "white" "    xiu2 status       - 停止 xiu2"
-ui_print "white" "    xiu2 stop         - 查看 xiu2"
+ui_print "white" "    xiu2 stop         - 停止 xiu2"
+ui_print "white" "    xiu2 status       - 查看 xiu2"
 ui_print "white" "    xiu2 format      - 格式化默认日志文件 /root/xiu2.log"
 ui_print "white" "    xiu2 format /path/to/logfile - 格式化指定的日志文件"
 ui_print "green" "启动后，机器人日志将记录在 /root/xiu2.log"
