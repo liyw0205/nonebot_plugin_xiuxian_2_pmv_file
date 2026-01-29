@@ -163,7 +163,6 @@ get_available_proxies() {
     fi
 }
 
-# 检查bc命令是否可用，如果不可用则安装或使用替代方案
 check_bc_command() {
     if ! command -v bc &> /dev/null; then
         ui_print "yellow" "检测到bc命令不可用，正在尝试安装..."
@@ -278,8 +277,157 @@ get_proxy_choice() {
     esac
 }
 
+# 下载release资源文件（支持代理重试）
+download_release_resource() {
+    local release_url="$1"
+    local download_path="$2"
+    local proxy_urls=("$3")  # 改为数组，支持多个代理重试
+    
+    show_progress "下载release资源文件"
+    
+    # 如果没有指定代理，则直接尝试下载
+    if [[ -z "$proxy_urls" || "$proxy_urls" == " " ]]; then
+        ui_print "cyan" "尝试直接下载: $release_url"
+        
+        if command -v wget &> /dev/null; then
+            if wget -O "$download_path" "$release_url"; then
+                show_status "下载release资源文件" "success"
+                return 0
+            fi
+        elif command -v curl &> /dev/null; then
+            if curl -L -o "$download_path" "$release_url"; then
+                show_status "下载release资源文件" "success"
+                return 0
+            fi
+        fi
+        
+        show_status "下载release资源文件" "failure"
+        return 1
+    fi
+    
+    # 如果有多个代理可用，转换为数组
+    if [[ "$proxy_urls" != "("*")" ]]; then
+        # 单个代理的情况
+        local proxy_array=("$proxy_urls")
+    else
+        # 多个代理的情况（代理重试）
+        eval "local proxy_array=${proxy_urls}"
+    fi
+    
+    local success=false
+    
+    # 尝试所有可用的代理
+    for proxy_url in "${proxy_array[@]}"; do
+        # 构建下载URL
+        if [[ -n "$proxy_url" ]]; then
+            download_url="${proxy_url}${release_url}"
+        else
+            download_url="$release_url"
+        fi
+        
+        ui_print "cyan" "尝试代理下载: $download_url"
+        
+        # 使用wget或curl下载文件
+        if command -v wget &> /dev/null; then
+            if wget -O "$download_path" "$download_url"; then
+                show_status "下载release资源文件" "success"
+                success=true
+                break
+            else
+                ui_print "yellow" "代理 $proxy_url 下载失败，尝试下一个代理..."
+                # 删除可能的部分下载文件
+                rm -f "$download_path" 2>/dev/null
+            fi
+        elif command -v curl &> /dev/null; then
+            if curl -L -o "$download_path" "$download_url"; then
+                show_status "下载release资源文件" "success"
+                success=true
+                break
+            else
+                ui_print "yellow" "代理 $proxy_url 下载失败，尝试下一个代理..."
+                # 删除可能的部分下载文件
+                rm -f "$download_path" 2>/dev/null
+            fi
+        else
+            ui_print "red" "错误: 未找到wget或curl命令"
+            return 1
+        fi
+    done
+    
+    if $success; then
+        return 0
+    fi
+    
+    # 如果所有代理都失败，尝试直接下载
+    ui_print "yellow" "所有代理下载失败，尝试直接下载..."
+    ui_print "cyan" "直接下载URL: $release_url"
+    
+    if command -v wget &> /dev/null; then
+        if wget -O "$download_path" "$release_url"; then
+            show_status "下载release资源文件" "success"
+            return 0
+        fi
+    elif command -v curl &> /dev/null; then
+        if curl -L -o "$download_path" "$release_url"; then
+            show_status "下载release资源文件" "success"
+            return 0
+        fi
+    fi
+    
+    show_status "下载release资源文件" "failure"
+    return 1
+}
+
+# 解压release资源文件
+extract_release_resource() {
+    local archive_path="$1"
+    local extract_dir="$2"
+    
+    show_progress "解压release资源文件"
+    
+    # 创建解压目录
+    mkdir -p "$extract_dir"
+    
+    # 根据文件类型解压
+    if [[ "$archive_path" == *.tar.gz ]]; then
+        if tar -xzf "$archive_path" -C "$extract_dir" --strip-components=1; then
+            show_status "解压release资源文件" "success"
+            return 0
+        fi
+    elif [[ "$archive_path" == *.zip ]]; then
+        if command -v unzip &> /dev/null; then
+            if unzip -q "$archive_path" -d "$extract_dir" && \
+               find "$extract_dir" -mindepth 1 -maxdepth 1 -type d -exec mv {}/* "$extract_dir" \; 2>/dev/null && \
+               find "$extract_dir" -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} + 2>/dev/null; then
+                show_status "解压release资源文件" "success"
+                return 0
+            fi
+        else
+            ui_print "red" "错误: 未找到unzip命令"
+            return 1
+        fi
+    else
+        ui_print "red" "错误: 不支持的压缩格式"
+        return 1
+    fi
+    
+    show_status "解压release资源文件" "failure"
+    return 1
+}
+
+# 解析命令行参数
+PROJECT_NAME="xiu2"  # 默认项目名称
+
+# 检查是否传入了项目名称参数
+if [ $# -gt 0 ]; then
+    PROJECT_NAME="$1"
+    ui_print "green" "使用自定义项目名称: $PROJECT_NAME"
+else
+    ui_print "yellow" "使用默认项目名称: $PROJECT_NAME"
+fi
+
 # 检查并创建安装目录
-DIR="/root/xiu2"
+DIR="/root/$PROJECT_NAME"
 if [[ -d "$DIR" ]]; then
     ui_print "red" "安装目录已存在，请手动删除：$DIR"
     exit 127
@@ -301,13 +449,13 @@ fi
 show_progress "更新系统及安装依赖"
 if command -v apt &> /dev/null; then
     # Debian/Ubuntu
-    apt update && apt upgrade -y && apt install -y screen curl wget git python3 python3-pip python3-venv bc
+    apt update && apt upgrade -y && apt install -y screen curl wget git python3 python3-pip python3-venv bc tar unzip
 elif command -v yum &> /dev/null; then
     # CentOS/RHEL
-    yum update -y && yum install -y screen curl wget git python3 python3-pip python3-virtualenv bc
+    yum update -y && yum install -y screen curl wget git python3 python3-pip python3-virtualenv bc tar unzip
 elif command -v dnf &> /dev/null; then
     # Fedora
-    dnf update -y && dnf install -y screen curl wget git python3 python3-pip python3-virtualenv bc
+    dnf update -y && dnf install -y screen curl wget git python3 python3-pip python3-virtualenv bc tar unzip
 else
     ui_print "red" "不支持的包管理器，请手动安装必要的依赖。"
     exit 127
@@ -319,34 +467,11 @@ else
     exit 127
 fi
 
-# 用户输入配置信息
-show_progress "获取用户配置信息"
-read_or SUPERUSERS "请输入主人QQ号（SUPERUSERS）" "123456"
-read_or NICKNAME "请输入机器人昵称（NICKNAME）" "堂堂"
-read_or PORT "请输入端口号（PORT）" "8080"
-
-# 写入配置文件
-cat <<EOF> "$DIR/.env"
-ENVIRONMENT=dev
-DRIVER=~fastapi+~httpx+~websockets+~aiohttp
-EOF
-
-cat <<EOF> "$DIR/.env.dev"
-LOG_LEVEL=INFO
-
-SUPERUSERS = ["$SUPERUSERS"]
-COMMAND_START = [""]
-NICKNAME = ["$NICKNAME"]
-DEBUG = False
-HOST = 0.0.0.0
-PORT = $PORT
-EOF
-
 cat <<EOF> "$DIR/pyproject.toml"
 [project]
-name = "xiu2"
+name = "$PROJECT_NAME"
 version = "0.1.0"
-description = "xiu2"
+description = "$PROJECT_NAME"
 readme = "README.md"
 requires-python = ">=3.9, <4.0"
 dependencies = [
@@ -381,51 +506,83 @@ show_status "设置时区为 Asia/Shanghai (上海)" "success"
 # 设置代理
 get_proxy_choice
 
-# 构建git克隆URL
-GIT_URL="https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv.git"
-if [[ -n "$PROXY" ]]; then
-    GIT_CLONE_URL="$PROXY$GIT_URL"
+# Release资源下载配置
+REPO_OWNER="liyw0205"
+REPO_NAME="nonebot_plugin_xiuxian_2_pmv"
+RELEASE_TAG="latest"  # 可以使用特定版本标签如 "v1.0.0"
+RELEASE_ASSET="project.tar.gz"  # release资源文件名
+
+# 构建release下载URL
+if [[ "$RELEASE_TAG" == "latest" ]]; then
+    RELEASE_URL="https://github.com/$REPO_OWNER/$REPO_NAME/releases/latest/download/$RELEASE_ASSET"
 else
-    GIT_CLONE_URL="$GIT_URL"
+    RELEASE_URL="https://github.com/$REPO_OWNER/$REPO_NAME/releases/download/$RELEASE_TAG/$RELEASE_ASSET"
 fi
 
-# 克隆 nonebot xiu2插件仓库
-ui_print "yellow" "正在克隆 nonebot xiu2插件仓库..."
-ui_print "cyan" "使用URL: $GIT_CLONE_URL"
-git clone --depth=1 -b main "$GIT_CLONE_URL"
-if [ $? -eq 0 ]; then
-    show_status "Git 克隆 nonebot_plugin_xiuxian_2_pmv 仓库" "success"
+TEMP_DOWNLOAD_PATH="$DIR/${REPO_NAME}_${RELEASE_ASSET}"
+TEMP_EXTRACT_DIR="$DIR/temp_extract"
+
+# 根据代理选择决定使用单个代理还是所有可用代理
+if [[ "$PROXY_CHOICE" == "1" && -n "$PROXY" && -n "${AVAILABLE_PROXIES[*]}" ]]; then
+    # 自动选择模式：使用所有可用代理进行重试
+    PROXY_FOR_DOWNLOAD="(${AVAILABLE_PROXIES[*]})"
+    ui_print "green" "✓ 将按顺序尝试所有可用代理（${#AVAILABLE_PROXIES[@]}个）"
+elif [[ -n "$PROXY" ]]; then
+    # 单个代理模式
+    PROXY_FOR_DOWNLOAD="$PROXY"
 else
-    show_status "Git 克隆 nonebot_plugin_xiuxian_2_pmv 仓库" "failure"
+    # 无代理模式
+    PROXY_FOR_DOWNLOAD=""
+fi
+
+# 下载release资源文件（支持代理重试）
+if ! download_release_resource "$RELEASE_URL" "$TEMP_DOWNLOAD_PATH" "$PROXY_FOR_DOWNLOAD"; then
+    ui_print "red" "所有下载方式均失败，请检查网络连接"
     exit 127
 fi
 
-# 移动文件到安装目录
-mv /root/nonebot_plugin_xiuxian_2_pmv/nonebot_plugin_xiuxian_2 "$DIR/src/plugins" || {
-    show_status "移动 nonebot_plugin_xiuxian_2 到 $DIR/src/plugins" "failure"
+# 解压release资源文件
+if ! extract_release_resource "$TEMP_DOWNLOAD_PATH" "$TEMP_EXTRACT_DIR"; then
+    ui_print "red" "解压失败，请检查文件完整性"
     exit 127
-}
-show_status "移动 nonebot_plugin_xiuxian_2 到 $DIR/src/plugins" "success"
+fi
 
-mv /root/nonebot_plugin_xiuxian_2_pmv/data "$DIR" || {
-    show_status "移动 data 目录到 $DIR" "failure"
-    exit 127
-}
-show_status "移动 data 目录到 $DIR" "success"
+# 移动文件到正确位置
+show_progress "移动文件到安装目录"
 
-mv /root/nonebot_plugin_xiuxian_2_pmv/requirements.txt "$DIR" || {
-    show_status "移动 requirements.txt 到 $DIR" "failure"
-    exit 127
-}
-show_status "移动 requirements.txt 到 $DIR" "success"
+# 检查解压后的目录结构并移动文件
+if [[ -d "$TEMP_EXTRACT_DIR/nonebot_plugin_xiuxian_2" ]]; then
+    # 标准release结构
+    mv "$TEMP_EXTRACT_DIR/nonebot_plugin_xiuxian_2" "$DIR/src/plugins/" || {
+        show_status "移动插件文件" "failure"
+        exit 127
+    }
+    show_status "移动插件文件" "success"
+    
+    if [[ -d "$TEMP_EXTRACT_DIR/data" ]]; then
+        mv "$TEMP_EXTRACT_DIR/data" "$DIR/" || {
+            show_status "移动data目录" "failure"
+            exit 127
+        }
+        show_status "移动data目录" "success"
+    fi
+    
+    if [[ -f "$TEMP_EXTRACT_DIR/requirements.txt" ]]; then
+        mv "$TEMP_EXTRACT_DIR/requirements.txt" "$DIR/" || {
+            show_status "移动requirements.txt" "failure"
+            exit 127
+        }
+        show_status "移动requirements.txt" "success"
+    fi
+fi
 
-# 清理临时克隆的仓库
-rm -rf /root/nonebot_plugin_xiuxian_2_pmv > /dev/null 2>&1
-show_status "清理临时克隆目录 /root/nonebot_plugin_xiuxian_2_pmv" "success"
+# 清理临时文件
+rm -rf "$TEMP_DOWNLOAD_PATH" "$TEMP_EXTRACT_DIR" > /dev/null 2>&1
+show_status "清理临时文件" "success"
 
 # 创建 Python 虚拟环境并安装依赖
 show_progress "创建 Python 虚拟环境 myenv"
-python3 -m venv myenv > /dev/null 2>&1
+python3 -m venv "$PWD"/myenv > /dev/null 2>&1
 if [ $? -eq 0 ]; then
     show_status "创建 Python 虚拟环境 myenv" "success"
 else
@@ -433,7 +590,16 @@ else
     exit 127
 fi
 
-source /root/myenv/bin/activate > /dev/null 2>&1
+
+# 创建启动脚本
+cat <<EOF> "/bin/${PROJECT_NAME}_start"
+export TZ=Asia/Shanghai
+source "$PWD"/myenv/bin/activate
+cd $DIR
+nb run --reload
+EOF
+
+source "$PWD"/myenv/bin/activate > /dev/null 2>&1
 if [ $? -ne 0 ]; then
     show_status "激活 Python 虚拟环境" "failure"
     exit 127
@@ -450,7 +616,7 @@ cd "$DIR" || {
 show_status "进入安装目录 $DIR" "success"
 
 show_progress "安装 nb-cli"
-pip install nb-cli
+pip install nb-cli==1.5.0
 if [ $? -eq 0 ]; then
     show_status "安装 nb-cli" "success"
 else
@@ -480,16 +646,33 @@ else
     exit 127
 fi
 
-# 创建启动脚本
-cat <<EOF> "/bin/xiu2_start"
-export TZ=Asia/Shanghai
-source /root/myenv/bin/activate
-cd $DIR
-nb run
+# 用户输入配置信息
+show_progress "获取用户配置信息"
+read_or SUPERUSERS "请输入主人QQ号（SUPERUSERS）" "123456"
+read_or NICKNAME "请输入机器人昵称（NICKNAME）" "堂堂"
+read_or PORT "请输入端口号（PORT）" "8080"
+
+# 写入配置文件
+cat <<EOF> "$DIR/.env"
+ENVIRONMENT=dev
+DRIVER=~fastapi+~httpx+~websockets+~aiohttp
 EOF
 
+cat <<EOF> "$DIR/.env.dev"
+LOG_LEVEL=INFO
+
+SUPERUSERS = ["$SUPERUSERS"]
+COMMAND_START = [""]
+NICKNAME = ["$NICKNAME"]
+DEBUG = False
+HOST = 0.0.0.0
+PORT = $PORT
+EOF
+
+show_status "生成配置信息" "success"
+
 # 创建启动脚本和格式化日志功能
-cat <<EOF> "/bin/xiu2"
+cat <<EOF> "/bin/$PROJECT_NAME"
 formatlog() {
 LOG_FILE="\$@"
 awk '{
@@ -504,62 +687,53 @@ awk '{
             }' "\$LOG_FILE" "\$LOG_FILE.format.log"
 }
 if [ "\$#" -eq 0 ]; then
-    if screen -list | grep -q '\bxiu2\b'; then
-        echo "xiu2已在后台运行"
-        echo "   您可以查看现有会话："
-        echo "       screen -r xiu2"
-        echo "   或查看日志："
-        echo "       tail -f /root/xiu2.log"
-    else
-        echo "正在后台启动xiu2..."
-        screen -U -dmS xiu2 -L -Logfile /root/xiu2.log bash -c 'xiu2_start'
-        echo "已后台启动，通过以下命令查看当前状态："
-        echo "       screen -r xiu2"
-        echo "   或查看日志："
-        echo "       tail -f /root/xiu2.log"
-    fi
+    echo "用法: $PROJECT_NAME [start|stop|status|format [log_file]]"
+    echo "  start     - 启动 $PROJECT_NAME"
+    echo "  stop      - 停止 $PROJECT_NAME"
+    echo "  status     - 查看 $PROJECT_NAME"
+        echo "  format [log_file] - 格式化日志文件（默认: "$DIR"/${PROJECT_NAME}.log）"
 elif [ "\$#" -eq 1 ]; then
     if [ "\$1" = "start" ]; then
-        if screen -list | grep -q '\bxiu2\b'; then
-            echo "xiu2已在后台运行"
+        if screen -list | grep -q "\b$PROJECT_NAME\b"; then
+            echo "$PROJECT_NAME已在后台运行"
             echo "   您可以查看现有会话："
-            echo "       screen -r xiu2"
+            echo "       screen -r $PROJECT_NAME"
             echo "   或查看日志："
-            echo "       tail -f /root/xiu2.log"
+            echo "       tail -f "$DIR"/${PROJECT_NAME}.log"
         else
-            echo "正在后台启动xiu2..."
-            screen -U -dmS xiu2 -L -Logfile /root/xiu2.log bash -c 'xiu2_start'
+            echo "正在后台启动$PROJECT_NAME..."
+            screen -U -dmS $PROJECT_NAME -L -Logfile "$DIR"/${PROJECT_NAME}.log bash -c '${PROJECT_NAME}_start'
             echo "已后台启动，通过以下命令查看当前状态："
-            echo "       screen -r xiu2"
+            echo "       screen -r $PROJECT_NAME"
             echo "   或查看日志："
-            echo "       tail -f /root/xiu2.log"
+            echo "       tail -f "$DIR"/${PROJECT_NAME}.log"
         fi
     elif [ "\$1" = "stop" ]; then
-        if screen -list | grep -q '\bxiu2\b'; then
-            echo "正在停止xiu2..."
-            screen -X -S xiu2 quit
-            echo "xiu2已停止"
+        if screen -list | grep -q "\b$PROJECT_NAME\b"; then
+            echo "正在停止$PROJECT_NAME..."
+            screen -X -S $PROJECT_NAME quit
+            echo "$PROJECT_NAME已停止"
         else
-            echo "xiu2未在运行"
+            echo "$PROJECT_NAME未在运行"
         fi
     elif [ "\$1" = "status" ]; then
-        if screen -list | grep -q '\bxiu2\b'; then
-            screen -U -r xiu2
+        if screen -list | grep -q "\b$PROJECT_NAME\b"; then
+            screen -U -r $PROJECT_NAME
         else
-            echo "xiu2未在运行"
+            echo "$PROJECT_NAME未在运行"
         fi        
     elif [ "\$1" = "format" ]; then
-        LOG_FILE="/root/xiu2.log"
+        LOG_FILE="$DIR/${PROJECT_NAME}.log"
         if [ -f "\$LOG_FILE" ]; then
             formatlog "\$LOG_FILE"
         else
             echo "错误：日志文件 \$LOG_FILE 不存在"
         fi
     else
-        echo "用法: xiu2 [start|stop|format [log_file]]"
-        echo "  start     - 启动 xiu2（默认，无需参数）"
-        echo "  stop      - 停止 xiu2"
-        echo "  format [log_file] - 格式化日志文件（默认: /root/xiu2.log）"
+        echo "用法: $PROJECT_NAME [start|stop|status|format [log_file]]"
+        echo "  start     - 启动 $PROJECT_NAME"
+        echo "  stop      - 停止 $PROJECT_NAME"
+        echo "  format [log_file] - 格式化日志文件（默认: "$DIR"/${PROJECT_NAME}.log）"
     fi
 elif [ "\$#" -eq 2 ] && [ "\$1" = "format" ]; then
     LOG_FILE="\$2"
@@ -569,15 +743,16 @@ elif [ "\$#" -eq 2 ] && [ "\$1" = "format" ]; then
         echo "错误：日志文件 \$LOG_FILE 不存在"
     fi
 else
-    echo "用法: xiu2 [start|stop|format [log_file]]"
-    echo "  start     - 启动 xiu2（默认，无需参数）"
-    echo "  stop      - 停止 xiu2"
-    echo "  format [log_file] - 格式化日志文件（默认: /root/xiu2.log）"
+    echo "用法: $PROJECT_NAME [start|stop|status|format [log_file]]"
+    echo "  start     - 启动 $PROJECT_NAME"
+    echo "  stop      - 停止 $PROJECT_NAME"
+    echo "  status     - 查看 $PROJECT_NAME"
+    echo "  format [log_file] - 格式化日志文件（默认: "$DIR"/${PROJECT_NAME}.log）"
 fi
 EOF
 
-cat <<EOF> "/etc/logrotate.d/xiu2"
-/root/xiu2.log {
+cat <<EOF> "/etc/logrotate.d/$PROJECT_NAME"
+"$DIR"/${PROJECT_NAME}.log {
     daily
     size 20M
     rotate 10
@@ -591,19 +766,27 @@ cat <<EOF> "/etc/logrotate.d/xiu2"
 }
 EOF
 
-chmod +x /bin/xiu2_start
-chmod +x /bin/xiu2
+chmod +x /bin/${PROJECT_NAME}_start
+chmod +x /bin/$PROJECT_NAME
 
-show_status "创建启动脚本 /bin/xiu2_start 和 /bin/xiu2" "success"
+show_status "创建启动脚本 /bin/${PROJECT_NAME}_start 和 /bin/$PROJECT_NAME" "success"
+
+# 获取公网IPv4地址
+IPV4=$(curl -s ifconfig.me 2> /dev/null)
 
 # 安装完成提示
 ui_print "green" "========================================"
 ui_print "green" "✓ 一键安装完成！"
+ui_print "green" "项目名称: $PROJECT_NAME"
+ui_print "green" "安装目录: $DIR"
+ui_print "green" "OneBot V11 协议地址"
+ui_print "white" "    ws://${IPV4}:${PORT}/onebot/v11/ws"
+ui_print "white" "    ws://127.0.0.1:${PORT}/onebot/v11/ws"
 ui_print "green" "您可以使用以下命令："
-ui_print "white" "    xiu2              - 启动 xiu2（默认）"
-ui_print "white" "    xiu2 stop         - 停止 xiu2"
-ui_print "white" "    xiu2 status       - 查看 xiu2"
-ui_print "white" "    xiu2 format      - 格式化默认日志文件 /root/xiu2.log"
-ui_print "white" "    xiu2 format /path/to/logfile - 格式化指定的日志文件"
-ui_print "green" "启动后，机器人日志将记录在 /root/xiu2.log"
+ui_print "white" "    $PROJECT_NAME              - 启动 $PROJECT_NAME（默认）"
+ui_print "white" "    $PROJECT_NAME stop         - 停止 $PROJECT_NAME"
+ui_print "white" "    $PROJECT_NAME status       - 查看 $PROJECT_NAME"
+ui_print "white" "    $PROJECT_NAME format      - 格式化默认日志文件 "$DIR"/${PROJECT_NAME}.log"
+ui_print "white" "    $PROJECT_NAME format /path/to/logfile - 格式化指定的日志文件"
+ui_print "green" "启动后，机器人日志将记录在 "$DIR"/${PROJECT_NAME}.log"
 ui_print "green" "========================================"
