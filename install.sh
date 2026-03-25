@@ -218,8 +218,8 @@ get_proxy_choice() {
             check_bc_command
             if get_available_proxies; then
                 read_or PROXY_INDEX "请选择代理编号 (1-${#AVAILABLE_PROXIES[@]})" "1"
-                if [[ "$PROXY_INDEX" =~ ^[0-9]+$ ]] && [ "$PROXY_INDEX" -ge 1 ] && [ "$PROXY_INDEX" -le "${#AVAILABLE]}"
-XY_PROXIESPRO-1))]}"
+                if [[ "$PROXY_INDEX" =~ ^[0-9]+$ ]] && [ "$PROXY_INDEX" -ge 1 ] && [ "$PROXY_INDEX" -le "${#AVAILABLE_PROXIES[@]}" ]; then
+                    PROXY="${AVAILABLE_PROXIES[$((PROXY_INDEX-1))]}"
                     ui_print "green" "✓ 已选择代理：$PROXY"
                 else
                     ui_print "yellow" "无效编号，将直连"
