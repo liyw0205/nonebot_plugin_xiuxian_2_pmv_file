@@ -570,7 +570,8 @@ EOF
     nb driver install websockets
     nb driver install aiohttp
     nb adapter install onebot.v11
-    [ $? -eq 0 ] && show_status "安装 nonebot 驱动和 onebot.v11 适配器" "success" || show_status "安装 nonebot 驱动和 onebot.v11 适配器" "failure"
+    nb adapter install qq
+    [ $? -eq 0 ] && show_status "安装 nonebot 驱动和 onebot.v11/qq 适配器" "success" || show_status "安装 nonebot 驱动和 onebot.v11 适配器" "failure"
 
     if [[ -f "$DIR/requirements.txt" ]]; then
         show_progress "安装依赖（requirements.txt）"

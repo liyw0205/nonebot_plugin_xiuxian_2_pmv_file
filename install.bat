@@ -219,6 +219,7 @@ nb driver install fastapi
 nb driver install httpx
 nb driver install websockets
 nb adapter install onebot.v11
+nb adapter install qq
 
 echo [6/7] 创建配置文件 ...
 (
