@@ -105,20 +105,9 @@ echo %LINE%
 rmdir /s /q "%DIR%\tmp" 2>nul
 mkdir "%DIR%\tmp" 2>nul
 
-echo. 请选择下载代理方式
-echo. 1.使用代理：https://gh.llkk.cc/
-echo. 2.使用代理：https://github.dpik.top/
-echo. 3.使用代理：https://git.yylx.win/
-echo. 4.使用代理：https://ghfile.geekertao.top/
-echo. 按任意键不使用代理 可能速度慢或失败
+echo 正在自动选择可用代理，请稍候...
+call :auto_proxy
 echo %LINE%
-set /p proxy_choice=请输入序号选择代理:
-
-set "proxy="
-if /i "%proxy_choice%"=="1" set "proxy=https://gh.llkk.cc/"
-if /i "%proxy_choice%"=="2" set "proxy=https://github.dpik.top/"
-if /i "%proxy_choice%"=="3" set "proxy=https://git.yylx.win/"
-if /i "%proxy_choice%"=="4" set "proxy=https://ghfile.geekertao.top/"
 
 set "download_url=https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv/releases/latest/download/project.tar.gz"
 
@@ -157,7 +146,8 @@ echo     "nonebot2[fastapi]>=2.4.4",
 echo     "nonebot2[httpx]>=2.4.4",
 echo     "nonebot2[websockets]>=2.4.4",
 echo     "nonebot2[aiohttp]>=2.4.4",
-echo     "nonebot-adapter-onebot>=2.4.6"
+echo     "nonebot-adapter-onebot>=2.4.6",
+echo     "nonebot-adapter-qq>=1.6.7"
 echo ]
 echo.
 echo [project.optional-dependencies]
@@ -172,6 +162,7 @@ echo nonebot-adapter-onebot = [
 echo     { name = "OneBot V11", module_name = "nonebot.adapters.onebot.v11" }
 echo ]
 echo "@local" = []
+echo nonebot-adapter-qq = [{name = "QQ", module_name = "nonebot.adapters.qq"}]
 echo.
 echo [tool.nonebot.plugins]
 echo "@local" = []
@@ -276,7 +267,6 @@ echo %LINE%
 echo            开始更新 Xiu2 项目
 echo %LINE%
 
-:: 若项目不存在，则自动进入安装
 if not exist "%DIR%\xiu2" (
     echo 未检测到项目目录：%DIR%\xiu2
     echo 将自动进入安装流程...
@@ -284,28 +274,15 @@ if not exist "%DIR%\xiu2" (
     goto install
 )
 
-:: 准备临时目录
 rmdir /s /q "%DIR%\tmp" 2>nul
 mkdir "%DIR%\tmp" 2>nul
 
-echo. 请选择下载代理方式
-echo. 1.使用代理：https://gh.llkk.cc/
-echo. 2.使用代理：https://github.dpik.top/
-echo. 3.使用代理：https://git.yylx.win/
-echo. 4.使用代理：https://ghfile.geekertao.top/
-echo. 按任意键不使用代理 可能速度慢或失败
+echo 正在自动选择可用代理，请稍候...
+call :auto_proxy
 echo %LINE%
-set /p proxy_choice=请输入序号选择代理:
-
-set "proxy="
-if /i "%proxy_choice%"=="1" set "proxy=https://gh.llkk.cc/"
-if /i "%proxy_choice%"=="2" set "proxy=https://github.dpik.top/"
-if /i "%proxy_choice%"=="3" set "proxy=https://git.yylx.win/"
-if /i "%proxy_choice%"=="4" set "proxy=https://ghfile.geekertao.top/"
 
 set "download_url=https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv/releases/latest/download/project.tar.gz"
 
-:: 更新时强制重新下载最新包
 if exist "%DIR%\project.tar.gz" del /f /q "%DIR%\project.tar.gz" >nul 2>nul
 
 echo [1/5] 下载最新 project.tar.gz ...
@@ -329,7 +306,6 @@ python -c "import tarfile; tf = tarfile.open(r'%DIR%\project.tar.gz', 'r:gz'); t
 )
 
 echo [3/5] 覆盖插件与数据 ...
-:: 仅替换插件和数据，保留用户配置与虚拟环境
 rmdir /s /q "%DIR%\xiu2\src\plugins\nonebot_plugin_xiuxian_2" 2>nul
 rmdir /s /q "%DIR%\xiu2\data\xiuxian" 2>nul
 
@@ -371,3 +347,37 @@ if /i "%choice%"=="A" (
     goto install
 )
 goto zhuye
+
+:auto_proxy
+set "proxy="
+set "best_proxy="
+set "best_time=999999"
+
+set "test_url=https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv/releases/latest/download/project.tar.gz"
+
+for %%P in (
+    https://gh.llkk.cc/
+    https://github.dpik.top/
+    https://git.yylx.win/
+    https://ghfile.geekertao.top/
+) do (
+    for /f %%T in ('powershell -NoProfile -Command ^
+        "$u='%%P%test_url%';" ^
+        "$sw=[System.Diagnostics.Stopwatch]::StartNew();" ^
+        "try { Invoke-WebRequest -Uri $u -Method Head -TimeoutSec 8 -UseBasicParsing ^| Out-Null; $sw.Stop(); [int]$sw.ElapsedMilliseconds } catch { 999999 }"') do (
+        set "cost=%%T"
+        if !cost! LSS !best_time! (
+            set "best_time=!cost!"
+            set "best_proxy=%%P"
+        )
+    )
+)
+
+if not "%best_proxy%"=="" (
+    set "proxy=%best_proxy%"
+    echo 自动选择代理: %proxy%  延迟约 %best_time% ms
+) else (
+    set "proxy="
+    echo 未找到可用代理，使用直连下载。
+)
+exit /b

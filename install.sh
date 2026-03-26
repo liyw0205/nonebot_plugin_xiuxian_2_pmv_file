@@ -449,7 +449,8 @@ dependencies = [
     "nonebot2[httpx]>=2.4.4",
     "nonebot2[websockets]>=2.4.4",
     "nonebot2[aiohttp]>=2.4.4",
-    "nonebot-adapter-onebot>=2.4.6"
+    "nonebot-adapter-onebot>=2.4.6",
+    "nonebot-adapter-qq>=1.6.7"
 ]
 
 [project.optional-dependencies]
@@ -464,6 +465,7 @@ nonebot-adapter-onebot = [
     { name = "OneBot V11", module_name = "nonebot.adapters.onebot.v11" }
 ]
 "@local" = []
+nonebot-adapter-qq = [{name = "QQ", module_name = "nonebot.adapters.qq"}]
 
 [tool.nonebot.plugins]
 "@local" = []
