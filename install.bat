@@ -29,23 +29,20 @@ cls
 if /i "%choice%"=="A" (
     color 07
     cd /d "%DIR%"
+    if not exist "%DIR%\myenv\Scripts\activate" (
+        echo 未找到虚拟环境，请先安装（B）。
+        pause
+        goto zhuye
+    )
     call myenv\Scripts\activate
     cd /d "%DIR%\xiu2"
     nb run --reload
     goto zhuye
 )
 
-if /i "%choice%"=="B" (
-    goto install
-)
-
-if /i "%choice%"=="C" (
-    goto uninstall
-)
-
-if /i "%choice%"=="D" (
-    goto update
-)
+if /i "%choice%"=="B" goto install
+if /i "%choice%"=="C" goto uninstall
+if /i "%choice%"=="D" goto update
 
 echo 输入错误，请重新选择！
 echo %LINE%
@@ -63,14 +60,10 @@ echo 正在检测 Python 环境...
 echo %LINE%
 
 set "PYTHON_INSTALLED="
-set "PYTHON_MAJOR="
-set "PYTHON_MINOR="
-
 for /f "tokens=1,2" %%i in ('python -c "import sys; print(sys.version_info.major, sys.version_info.minor)" 2^>nul') do (
-    set "PYTHON_MAJOR=%%i"
-    set "PYTHON_MINOR=%%j"
     set "PYTHON_INSTALLED=true"
 )
+
 if "%PYTHON_INSTALLED%"=="true" goto install_project
 
 echo 未检测到 Python。将尝试安装 Python 3.11.0。
@@ -79,7 +72,7 @@ set "PYTHON_INSTALLER_PATH=%DIR%\python-3.11.0-amd64.exe"
 
 if exist "%cd%\python-3.11.0-amd64.exe" (
     echo 当前路径存在 python-3.11.0-amd64.exe ... 已移动到 %DIR%\python-3.11.0-amd64.exe
-    move "%cd%\python-3.11.0-amd64.exe" "%DIR%\python-3.11.0-amd64.exe"
+    move "%cd%\python-3.11.0-amd64.exe" "%DIR%\python-3.11.0-amd64.exe" >nul
 )
 
 if not exist "%PYTHON_INSTALLER_PATH%" (
@@ -87,9 +80,10 @@ if not exist "%PYTHON_INSTALLER_PATH%" (
     echo 正在下载 Python 3.11.0 安装包...
     powershell -Command "Invoke-WebRequest -Uri '%PYTHON_INSTALLER_URL%' -OutFile '%PYTHON_INSTALLER_PATH%' -UseBasicParsing"
 )
+
 echo 正在安装 Python 3.11.0 (静默安装，请稍候)...
-echo 这可能需要几分钟，请耐心等待，期间可能没有提示。
 start /wait "" "%PYTHON_INSTALLER_PATH%" /quiet InstallAllUsers=1 PrependPath=1 Include_test=0
+
 echo %LINE%
 echo 请按任意键退出，重新打开脚本来加载环境...
 pause > nul
@@ -106,14 +100,40 @@ rmdir /s /q "%DIR%\tmp" 2>nul
 mkdir "%DIR%\tmp" 2>nul
 
 echo 正在自动选择可用代理，请稍候...
-call :auto_proxy
+set "proxy="
+set "best_proxy="
+set "best_time=999999"
+set "test_url=https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv/releases/latest/download/project.tar.gz"
+
+for %%P in (
+    https://gh.llkk.cc/
+    https://github.dpik.top/
+    https://git.yylx.win/
+    https://ghfile.geekertao.top/
+) do (
+    for /f %%T in ('powershell -NoProfile -Command "$u=''%%P%test_url%''; $sw=[System.Diagnostics.Stopwatch]::StartNew(); try { Invoke-WebRequest -Uri $u -Method Head -TimeoutSec 8 -UseBasicParsing ^| Out-Null; $sw.Stop(); [int]$sw.ElapsedMilliseconds } catch { 999999 }"') do (
+        set "cost=%%T"
+        if !cost! LSS !best_time! (
+            set "best_time=!cost!"
+            set "best_proxy=%%P"
+        )
+    )
+)
+
+if defined best_proxy (
+    set "proxy=%best_proxy%"
+    echo 自动选择代理: %proxy%  延迟约 %best_time% ms
+) else (
+    set "proxy="
+    echo 未找到可用代理，使用直连下载。
+)
 echo %LINE%
 
 set "download_url=https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv/releases/latest/download/project.tar.gz"
 
 if exist "%cd%\project.tar.gz" (
     echo 当前路径存在 project.tar.gz ... 已移动到 %DIR%\project.tar.gz
-    move "%cd%\project.tar.gz" "%DIR%\project.tar.gz"
+    move "%cd%\project.tar.gz" "%DIR%\project.tar.gz" >nul
 )
 
 echo [1/7] 检测 project.tar.gz ...
@@ -124,9 +144,8 @@ if not exist "%DIR%\project.tar.gz" (
     if errorlevel 1 (
         echo 下载失败！请检查网络或代理。
         echo %LINE%
-        echo 请按任意键继续...
         pause > nul
-        exit /b 1
+        goto zhuye
     )
 )
 
@@ -171,14 +190,12 @@ echo "@local" = []
 echo [3/7] 解压 project.tar.gz ...
 python -c "import tarfile; tf = tarfile.open(r'%DIR%\project.tar.gz', 'r:gz'); tf.extractall(r'%DIR%\tmp'); tf.close(); print('解压完成')" || (
     echo Python 解压失败！
-    echo 请检查文件/重新下载/删除 %DIR%\project.tar.gz
-    echo %LINE%
-    echo 请按任意键继续...
     pause > nul
-    exit /b 1
+    goto zhuye
 )
-move "%DIR%\tmp\data\xiuxian" "%DIR%\xiu2\data"
-move "%DIR%\tmp\nonebot_plugin_xiuxian_2" "%DIR%\xiu2\src\plugins"
+
+move "%DIR%\tmp\data\xiuxian" "%DIR%\xiu2\data" >nul
+move "%DIR%\tmp\nonebot_plugin_xiuxian_2" "%DIR%\xiu2\src\plugins" >nul
 
 echo [4/7] 创建虚拟环境 ...
 python -m venv "%DIR%\myenv"
@@ -192,19 +209,7 @@ python -m pip install --upgrade pip
 pip install nb-cli==1.5.0
 
 cd /d "%DIR%\xiu2"
-pip install wget
-pip install numpy
-pip install ujson
-pip install Pillow
-pip install wcwidth
-pip install pathlib
-pip install asyncio
-pip install aiohttp
-pip install pydantic
-pip install aiofiles
-pip install flask
-pip install requests
-pip install nonebot_plugin_apscheduler
+pip install wget numpy ujson Pillow wcwidth pathlib asyncio aiohttp pydantic aiofiles flask requests nonebot_plugin_apscheduler
 
 nb driver install fastapi
 nb driver install httpx
@@ -244,19 +249,14 @@ echo nb run --reload
 echo.
 echo %LINE%
 echo 安装完成！
-echo 项目名称: xiu2
 echo 安装目录: %DIR%\xiu2
-echo.
-echo OneBot V11 协议地址：
-echo     ws://%IPV4%:%PORT%/onebot/v11/ws
-echo     ws://127.0.0.1:%PORT%/onebot/v11/ws
+echo ws://%IPV4%:%PORT%/onebot/v11/ws
+echo ws://127.0.0.1:%PORT%/onebot/v11/ws
 echo %LINE%
 
 rmdir /s /q "%DIR%\tmp" 2>nul
 call "%DIR%\启动修仙.bat"
 echo 已尝试启动修仙
-echo 注意：当前是默认配置，如需修改配置：%DIR%\xiu2\.env.dev
-echo %LINE%
 echo 请按任意键继续...
 pause > nul
 goto zhuye
@@ -268,8 +268,7 @@ echo            开始更新 Xiu2 项目
 echo %LINE%
 
 if not exist "%DIR%\xiu2" (
-    echo 未检测到项目目录：%DIR%\xiu2
-    echo 将自动进入安装流程...
+    echo 未检测到项目目录，将自动进入安装流程...
     timeout /t 2 >nul
     goto install
 )
@@ -278,7 +277,33 @@ rmdir /s /q "%DIR%\tmp" 2>nul
 mkdir "%DIR%\tmp" 2>nul
 
 echo 正在自动选择可用代理，请稍候...
-call :auto_proxy
+set "proxy="
+set "best_proxy="
+set "best_time=999999"
+set "test_url=https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv/releases/latest/download/project.tar.gz"
+
+for %%P in (
+    https://gh.llkk.cc/
+    https://github.dpik.top/
+    https://git.yylx.win/
+    https://ghfile.geekertao.top/
+) do (
+    for /f %%T in ('powershell -NoProfile -Command "$u=''%%P%test_url%''; $sw=[System.Diagnostics.Stopwatch]::StartNew(); try { Invoke-WebRequest -Uri $u -Method Head -TimeoutSec 8 -UseBasicParsing ^| Out-Null; $sw.Stop(); [int]$sw.ElapsedMilliseconds } catch { 999999 }"') do (
+        set "cost=%%T"
+        if !cost! LSS !best_time! (
+            set "best_time=!cost!"
+            set "best_proxy=%%P"
+        )
+    )
+)
+
+if defined best_proxy (
+    set "proxy=%best_proxy%"
+    echo 自动选择代理: %proxy%  延迟约 %best_time% ms
+) else (
+    set "proxy="
+    echo 未找到可用代理，使用直连下载。
+)
 echo %LINE%
 
 set "download_url=https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv/releases/latest/download/project.tar.gz"
@@ -290,8 +315,6 @@ echo 下载地址: %proxy%%download_url%
 powershell -Command "Invoke-WebRequest -Uri '%proxy%%download_url%' -OutFile '%DIR%\project.tar.gz' -UseBasicParsing"
 if errorlevel 1 (
     echo 下载失败！请检查网络或代理。
-    echo %LINE%
-    echo 请按任意键继续...
     pause > nul
     goto zhuye
 )
@@ -299,8 +322,6 @@ if errorlevel 1 (
 echo [2/5] 解压更新包 ...
 python -c "import tarfile; tf = tarfile.open(r'%DIR%\project.tar.gz', 'r:gz'); tf.extractall(r'%DIR%\tmp'); tf.close(); print('解压完成')" || (
     echo Python 解压失败！
-    echo %LINE%
-    echo 请按任意键继续...
     pause > nul
     goto zhuye
 )
@@ -308,7 +329,6 @@ python -c "import tarfile; tf = tarfile.open(r'%DIR%\project.tar.gz', 'r:gz'); t
 echo [3/5] 覆盖插件与数据 ...
 rmdir /s /q "%DIR%\xiu2\src\plugins\nonebot_plugin_xiuxian_2" 2>nul
 rmdir /s /q "%DIR%\xiu2\data\xiuxian" 2>nul
-
 move "%DIR%\tmp\nonebot_plugin_xiuxian_2" "%DIR%\xiu2\src\plugins\" >nul
 move "%DIR%\tmp\data\xiuxian" "%DIR%\xiu2\data\" >nul
 
@@ -328,7 +348,6 @@ echo %LINE%
 echo 更新完成！
 echo 如更新后无法启动，可尝试执行“C.重装”。
 echo %LINE%
-echo 请按任意键继续...
 pause >nul
 goto zhuye
 
@@ -347,37 +366,3 @@ if /i "%choice%"=="A" (
     goto install
 )
 goto zhuye
-
-:auto_proxy
-set "proxy="
-set "best_proxy="
-set "best_time=999999"
-
-set "test_url=https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv/releases/latest/download/project.tar.gz"
-
-for %%P in (
-    https://gh.llkk.cc/
-    https://github.dpik.top/
-    https://git.yylx.win/
-    https://ghfile.geekertao.top/
-) do (
-    for /f %%T in ('powershell -NoProfile -Command ^
-        "$u='%%P%test_url%';" ^
-        "$sw=[System.Diagnostics.Stopwatch]::StartNew();" ^
-        "try { Invoke-WebRequest -Uri $u -Method Head -TimeoutSec 8 -UseBasicParsing ^| Out-Null; $sw.Stop(); [int]$sw.ElapsedMilliseconds } catch { 999999 }"') do (
-        set "cost=%%T"
-        if !cost! LSS !best_time! (
-            set "best_time=!cost!"
-            set "best_proxy=%%P"
-        )
-    )
-)
-
-if not "%best_proxy%"=="" (
-    set "proxy=%best_proxy%"
-    echo 自动选择代理: %proxy%  延迟约 %best_time% ms
-) else (
-    set "proxy="
-    echo 未找到可用代理，使用直连下载。
-)
-exit /b
