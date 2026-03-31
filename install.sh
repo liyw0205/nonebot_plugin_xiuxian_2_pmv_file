@@ -337,20 +337,52 @@ extract_release_resource() {
     fi
 }
 
+# 写入/覆盖日志轮转配置 + cron任务
+setup_logrotate_and_cron() {
+    # logrotate 配置（按大小轮转）
+    cat <<EOF > "/etc/logrotate.d/$PROJECT_NAME"
+"$DIR/${PROJECT_NAME}.log" {
+    size 20M
+    rotate 10
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    dateext
+    dateformat -%Y%m%d-%s
+}
+EOF
+    if [[ $? -eq 0 ]]; then
+        show_status "创建 logrotate 配置 /etc/logrotate.d/$PROJECT_NAME" "success"
+    else
+        show_status "创建 logrotate 配置 /etc/logrotate.d/$PROJECT_NAME" "failure"
+        return 1
+    fi
+
+    # cron 配置：每10分钟检查一次日志轮转
+    cat <<EOF > "/etc/cron.d/${PROJECT_NAME}_logrotate"
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+*/10 * * * * root /usr/sbin/logrotate -s /var/lib/logrotate/status /etc/logrotate.d/$PROJECT_NAME >/dev/null 2>&1
+EOF
+    chmod 644 "/etc/cron.d/${PROJECT_NAME}_logrotate"
+
+    if [[ $? -eq 0 ]]; then
+        show_status "创建定时轮转任务 /etc/cron.d/${PROJECT_NAME}_logrotate" "success"
+    else
+        show_status "创建定时轮转任务 /etc/cron.d/${PROJECT_NAME}_logrotate" "failure"
+        return 1
+    fi
+
+    return 0
+}
+
 # ---------------- 参数解析（支持项目名或绝对路径） ----------------
 DEFAULT_PROJECT_NAME="xiu2"
 ACTION="install"
 TARGET_INPUT="$DEFAULT_PROJECT_NAME"
 
-# 支持:
-# xx.sh
-# xx.sh xiu2
-# xx.sh /opt/xiu2
-# xx.sh install xiu2
-# xx.sh install /opt/xiu2
-# xx.sh update
-# xx.sh update xiu2
-# xx.sh update /opt/xiu2
 if [ $# -eq 0 ]; then
     ACTION="install"
     TARGET_INPUT="$DEFAULT_PROJECT_NAME"
@@ -384,7 +416,6 @@ else
     esac
 fi
 
-# 目标输入解析为 DIR + PROJECT_NAME
 if [[ "$TARGET_INPUT" == /* ]]; then
     DIR="$TARGET_INPUT"
     PROJECT_NAME="$(basename "$DIR")"
@@ -401,13 +432,11 @@ ui_print "green" "执行模式: $ACTION"
 ui_print "green" "项目名称: $PROJECT_NAME"
 ui_print "green" "安装目录: $DIR"
 
-# update 且目录不存在，自动install
 if [[ "$ACTION" == "update" && ! -d "$DIR" ]]; then
     ui_print "yellow" "目录不存在，自动切换到 install：$DIR"
     ACTION="install"
 fi
 
-# install 目录已存在则拒绝
 if [[ "$ACTION" == "install" ]]; then
     if [[ -d "$DIR" ]]; then
         ui_print "red" "安装目录已存在，请使用 update 或先删除：$DIR"
@@ -422,7 +451,6 @@ else
     ensure_dir "$DIR/src/plugins" || { show_status "创建插件目录 $DIR/src/plugins" "failure"; exit 127; }
 fi
 
-# install 专属：系统依赖
 if [[ "$ACTION" == "install" ]]; then
     show_progress "更新系统及安装依赖"
     if command -v apt &> /dev/null; then
@@ -475,10 +503,8 @@ EOF
     show_status "设置时区为 Asia/Shanghai" "success"
 fi
 
-# 代理设置
 get_proxy_choice
 
-# Release配置
 REPO_OWNER="liyw0205"
 REPO_NAME="nonebot_plugin_xiuxian_2_pmv"
 RELEASE_TAG="latest"
@@ -518,14 +544,12 @@ fi
 show_progress "移动文件到安装目录"
 
 if [[ -d "$TEMP_EXTRACT_DIR/nonebot_plugin_xiuxian_2" ]]; then
-    rm -rf "$DIR/src/plugins/nonebot_plugin_xiuxian_2"
-    mv "$TEMP_EXTRACT_DIR/nonebot_plugin_xiuxian_2" "$DIR/src/plugins/" || { show_status "移动插件文件" "failure"; exit 127; }
+    cp -rf "$TEMP_EXTRACT_DIR/nonebot_plugin_xiuxian_2" "$DIR/src/plugins/" || { show_status "移动插件文件" "failure"; exit 127; }
     show_status "移动插件文件" "success"
 fi
 
 if [[ -d "$TEMP_EXTRACT_DIR/data" ]]; then
-    rm -rf "$DIR/data"
-    mv "$TEMP_EXTRACT_DIR/data" "$DIR/" || { show_status "移动data目录" "failure"; exit 127; }
+    cp -rf "$TEMP_EXTRACT_DIR/data" "$DIR/" || { show_status "移动data目录" "failure"; exit 127; }
     show_status "移动data目录" "success"
 fi
 
@@ -537,8 +561,7 @@ fi
 rm -rf "$TEMP_DOWNLOAD_PATH" "$TEMP_EXTRACT_DIR" > /dev/null 2>&1
 show_status "清理临时文件" "success"
 
-# venv 统一放在 DIR/myenv
-VENV_PATH="$DIR/myenv"
+VENV_PATH="/root/myenv"
 
 if [[ "$ACTION" == "install" ]]; then
     show_progress "创建 Python 虚拟环境"
@@ -547,7 +570,35 @@ if [[ "$ACTION" == "install" ]]; then
 
     # 启动脚本
     cat <<EOF > "/bin/${PROJECT_NAME}_start"
+#!/bin/bash
 export TZ=Asia/Shanghai
+
+# 启动时自动确保 logrotate + cron 存在
+if [ ! -f "/etc/logrotate.d/$PROJECT_NAME" ]; then
+cat <<'LR_EOF' > "/etc/logrotate.d/$PROJECT_NAME"
+"$DIR/${PROJECT_NAME}.log" {
+    size 20M
+    rotate 10
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    dateext
+    dateformat -%Y%m%d-%s
+}
+LR_EOF
+fi
+
+if [ ! -f "/etc/cron.d/${PROJECT_NAME}_logrotate" ]; then
+cat <<'CRON_EOF' > "/etc/cron.d/${PROJECT_NAME}_logrotate"
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+*/10 * * * * root /usr/sbin/logrotate -s /var/lib/logrotate/status /etc/logrotate.d/$PROJECT_NAME >/dev/null 2>&1
+CRON_EOF
+chmod 644 "/etc/cron.d/${PROJECT_NAME}_logrotate"
+fi
+
 source "$VENV_PATH/bin/activate"
 cd "$DIR"
 nb run --reload
@@ -581,7 +632,6 @@ EOF
         [ $? -eq 0 ] && show_status "安装依赖（requirements.txt）" "success" || { show_status "安装依赖（requirements.txt）" "failure"; exit 127; }
     fi
 
-    # 首次安装收集配置
     show_progress "获取用户配置信息"
     read_or SUPERUSERS "请输入主人QQ号（SUPERUSERS）" "123456"
     read_or NICKNAME "请输入机器人昵称（NICKNAME）" "堂堂"
@@ -604,7 +654,6 @@ PORT = $PORT
 EOF
     show_status "生成配置信息" "success"
 
-    # 管理脚本
     cat <<EOF > "/bin/$PROJECT_NAME"
 formatlog() {
     local LOG_FILE="\$1"
@@ -624,6 +673,30 @@ fi
 
 case "\$1" in
     start)
+        if [ ! -f "/etc/logrotate.d/$PROJECT_NAME" ]; then
+cat <<'LR_EOF' > "/etc/logrotate.d/$PROJECT_NAME"
+"$DIR/${PROJECT_NAME}.log" {
+    size 20M
+    rotate 10
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    dateext
+    dateformat -%Y%m%d-%s
+}
+LR_EOF
+        fi
+        if [ ! -f "/etc/cron.d/${PROJECT_NAME}_logrotate" ]; then
+cat <<'CRON_EOF' > "/etc/cron.d/${PROJECT_NAME}_logrotate"
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+*/10 * * * * root /usr/sbin/logrotate -s /var/lib/logrotate/status /etc/logrotate.d/$PROJECT_NAME >/dev/null 2>&1
+CRON_EOF
+            chmod 644 "/etc/cron.d/${PROJECT_NAME}_logrotate"
+        fi
+
         if screen -list | grep -q "\b$PROJECT_NAME\b"; then
             echo "$PROJECT_NAME 已在后台运行"
         else
@@ -671,24 +744,11 @@ case "\$1" in
 esac
 EOF
 
-    # logrotate
-    cat <<EOF > "/etc/logrotate.d/$PROJECT_NAME"
-"$DIR/${PROJECT_NAME}.log" {
-    daily
-    size 20M
-    rotate 10
-    compress
-    delaycompress
-    missingok
-    notifempty
-    copytruncate
-    dateext
-    dateformat -%Y%m%d-%s
-}
-EOF
-
     chmod +x "/bin/${PROJECT_NAME}_start" "/bin/$PROJECT_NAME"
     show_status "创建启动脚本 /bin/${PROJECT_NAME}_start 和 /bin/$PROJECT_NAME" "success"
+
+    # install 完成后写入 logrotate + cron
+    setup_logrotate_and_cron || exit 127
 
 else
     # update
@@ -711,9 +771,11 @@ else
             ui_print "yellow" "未找到 requirements.txt，跳过依赖更新"
         fi
     fi
+
+    # update 也强制覆盖 logrotate + cron
+    setup_logrotate_and_cron || exit 127
 fi
 
-# 输出提示
 IPV4=$(curl -s ifconfig.me 2>/dev/null)
 PORT_SHOW=$(grep -E '^PORT *= *' "$DIR/.env.dev" 2>/dev/null | sed -E 's/.*= *//')
 [[ -z "$PORT_SHOW" ]] && PORT_SHOW="8080"
