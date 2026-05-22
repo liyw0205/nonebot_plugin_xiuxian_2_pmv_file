@@ -20,7 +20,7 @@ echo 项目地址：https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv
 echo OneBot V11 协议地址：
 echo     ws://127.0.0.1:%PORT%/onebot/v11/ws
 echo %LINE%
-echo A.启动  B.安装  C.重装  D.更新
+echo A.启动  B.安装  C.重装  D.更新  E.更新依赖
 echo %LINE%
 
 set choice=
@@ -43,6 +43,7 @@ if /i "%choice%"=="A" (
 if /i "%choice%"=="B" goto install
 if /i "%choice%"=="C" goto uninstall
 if /i "%choice%"=="D" goto update
+if /i "%choice%"=="E" goto update_deps
 
 echo 输入错误，请重新选择！
 echo %LINE%
@@ -166,7 +167,7 @@ echo     "nonebot2[httpx]>=2.4.4",
 echo     "nonebot2[websockets]>=2.4.4",
 echo     "nonebot2[aiohttp]>=2.4.4",
 echo     "nonebot-adapter-onebot>=2.4.6",
-echo     "nonebot-adapter-qq>=1.6.7"
+echo     "nonebot-adapter-qq>=1.7.1"
 echo ]
 echo.
 echo [project.optional-dependencies]
@@ -206,16 +207,11 @@ call myenv\Scripts\activate
 
 python -m pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
 python -m pip install --upgrade pip
-pip install nb-cli==1.5.0
+python -m pip install -U --upgrade-strategy eager "nb-cli" "nonebot2[fastapi,httpx,websockets,aiohttp]" "nonebot-adapter-onebot" "nonebot-adapter-qq" "nonebot_plugin_apscheduler"
 
 cd /d "%DIR%\xiu2"
-pip install wget numpy ujson Pillow wcwidth pathlib asyncio aiohttp pydantic aiofiles flask requests nonebot_plugin_apscheduler
-
-nb driver install fastapi
-nb driver install httpx
-nb driver install websockets
-nb adapter install onebot.v11
-nb adapter install qq
+python -m pip install -U --upgrade-strategy eager wget numpy ujson Pillow wcwidth pathlib asyncio aiohttp pydantic aiofiles flask requests
+python -c "import importlib.util as u; from importlib import metadata as md; mods=[('nonebot-adapter-qq','nonebot.adapters.qq'),('nonebot-adapter-onebot','nonebot.adapters.onebot.v11'),('nonebot2','nonebot')]; [print('%s: %s -> %s' % (p, md.version(p), (lambda s: next(iter(s.submodule_search_locations)) if s and s.submodule_search_locations else (s.origin if s else 'not found'))(u.find_spec(m)))) for p,m in mods]"
 
 echo [6/7] 创建配置文件 ...
 (
@@ -337,7 +333,11 @@ cd /d "%DIR%"
 if exist "%DIR%\myenv\Scripts\activate" (
     call myenv\Scripts\activate
     cd /d "%DIR%\xiu2"
-    pip install -U nonebot_plugin_apscheduler >nul 2>nul
+    python -m pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+    python -m pip install -U pip
+    python -m pip install -U --upgrade-strategy eager "nb-cli" "nonebot2[fastapi,httpx,websockets,aiohttp]" "nonebot-adapter-onebot" "nonebot-adapter-qq" "nonebot_plugin_apscheduler"
+    if exist "%DIR%\xiu2\requirements.txt" python -m pip install -U --upgrade-strategy eager -r "%DIR%\xiu2\requirements.txt"
+    python -c "import importlib.util as u; from importlib import metadata as md; mods=[('nonebot-adapter-qq','nonebot.adapters.qq'),('nonebot-adapter-onebot','nonebot.adapters.onebot.v11'),('nonebot2','nonebot')]; [print('%s: %s -> %s' % (p, md.version(p), (lambda s: next(iter(s.submodule_search_locations)) if s and s.submodule_search_locations else (s.origin if s else 'not found'))(u.find_spec(m)))) for p,m in mods]"
 )
 
 echo [5/5] 清理临时文件 ...
@@ -347,6 +347,34 @@ echo.
 echo %LINE%
 echo 更新完成！
 echo 如更新后无法启动，可尝试执行“C.重装”。
+echo %LINE%
+pause >nul
+goto zhuye
+
+:update_deps
+cls
+echo %LINE%
+echo            开始更新 Python 依赖
+echo %LINE%
+
+cd /d "%DIR%"
+if not exist "%DIR%\myenv\Scripts\activate" (
+    echo 未找到虚拟环境，请先安装（B）。
+    pause >nul
+    goto zhuye
+)
+
+call myenv\Scripts\activate
+cd /d "%DIR%\xiu2"
+python -m pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+python -m pip install -U pip
+python -m pip install -U --upgrade-strategy eager "nb-cli" "nonebot2[fastapi,httpx,websockets,aiohttp]" "nonebot-adapter-onebot" "nonebot-adapter-qq" "nonebot_plugin_apscheduler"
+if exist "%DIR%\xiu2\requirements.txt" python -m pip install -U --upgrade-strategy eager -r "%DIR%\xiu2\requirements.txt"
+python -c "import importlib.util as u; from importlib import metadata as md; mods=[('nonebot-adapter-qq','nonebot.adapters.qq'),('nonebot-adapter-onebot','nonebot.adapters.onebot.v11'),('nonebot2','nonebot')]; [print('%s: %s -> %s' % (p, md.version(p), (lambda s: next(iter(s.submodule_search_locations)) if s and s.submodule_search_locations else (s.origin if s else 'not found'))(u.find_spec(m)))) for p,m in mods]"
+
+echo.
+echo %LINE%
+echo 依赖更新完成。
 echo %LINE%
 pause >nul
 goto zhuye

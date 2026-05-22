@@ -27,6 +27,16 @@ XIUXIAN_CONFIG_PATH_ABS="" # 运行时会根据 $DIR 赋值
 # Python 虚拟环境路径
 VENV_PATH="/root/myenv" # 默认虚拟环境路径
 
+# 需要直接通过 pip 拉取当前索引最新版本的核心依赖。
+# 不通过 nb-cli 安装适配器，避免 nb-cli 的适配器版本映射落后于 PyPI。
+CORE_PIP_PACKAGES=(
+    "nb-cli"
+    "nonebot2[fastapi,httpx,websockets,aiohttp]"
+    "nonebot-adapter-onebot"
+    "nonebot-adapter-qq"
+    "nonebot_plugin_apscheduler"
+)
+
 # 带颜色的输出函数
 ui_print() {
     local color=$1
@@ -77,6 +87,88 @@ read_or() {
 ensure_dir() {
     local d="$1"
     mkdir -p "$d" || return 1
+    return 0
+}
+
+print_installed_dependency_versions() {
+    local python_cmd="$1"
+    "$python_cmd" - <<'PY' 2>/dev/null || true
+import importlib.util
+from importlib import metadata
+
+packages = {
+    "nb-cli": "nb_cli",
+    "nonebot2": "nonebot",
+    "nonebot-adapter-onebot": "nonebot.adapters.onebot.v11",
+    "nonebot-adapter-qq": "nonebot.adapters.qq",
+    "nonebot-plugin-apscheduler": "nonebot_plugin_apscheduler",
+}
+
+def module_location(module_name: str) -> str:
+    spec = importlib.util.find_spec(module_name)
+    if spec is None:
+        return "未找到模块"
+    if spec.submodule_search_locations:
+        return next(iter(spec.submodule_search_locations))
+    return spec.origin or "未知路径"
+
+print("当前核心依赖版本和安装路径：")
+for package, module_name in packages.items():
+    try:
+        version = metadata.version(package)
+    except metadata.PackageNotFoundError:
+        continue
+    print(f"  {package}: {version}")
+    print(f"    {module_name}: {module_location(module_name)}")
+PY
+}
+
+# 直接使用 pip 更新核心依赖和 requirements.txt。
+# pip 会从当前配置的索引源拉取最新可用版本，例如 nonebot-adapter-qq 1.7.1。
+upgrade_python_dependencies() {
+    local python_cmd="$VENV_PATH/bin/python"
+
+    if [[ ! -x "$python_cmd" ]]; then
+        ui_print "red" "未检测到虚拟环境 Python：$python_cmd"
+        ui_print "yellow" "请先完成安装，或确认 VENV_PATH 指向正确虚拟环境。"
+        return 1
+    fi
+    show_status "检测虚拟环境 $VENV_PATH" "success"
+
+    "$python_cmd" -m pip --version > /dev/null 2>&1 || {
+        ui_print "red" "当前 Python 未安装 pip：$python_cmd"
+        return 1
+    }
+
+    "$python_cmd" -m pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple > /dev/null 2>&1 || true
+    show_status "设置 pip 镜像源为清华源" "success"
+
+    show_progress "升级 pip"
+    "$python_cmd" -m pip install -U pip > /dev/null 2>&1 || {
+        show_status "升级 pip" "failure"
+        return 1
+    }
+    show_status "升级 pip" "success"
+
+    show_progress "升级 NoneBot 核心、驱动、适配器和常用插件"
+    "$python_cmd" -m pip install -U --upgrade-strategy eager "${CORE_PIP_PACKAGES[@]}" > /dev/null 2>&1 || {
+        show_status "升级核心依赖" "failure"
+        return 1
+    }
+    show_status "升级核心依赖" "success"
+
+    if [[ -f "$DIR/requirements.txt" ]]; then
+        show_progress "升级项目依赖（requirements.txt）"
+        "$python_cmd" -m pip install -U --upgrade-strategy eager -r "$DIR/requirements.txt" > /dev/null 2>&1 || {
+            show_status "升级项目依赖（requirements.txt）" "failure"
+            return 1
+        }
+        show_status "升级项目依赖（requirements.txt）" "success"
+    else
+        ui_print "yellow" "未找到 requirements.txt，跳过项目依赖更新"
+    fi
+
+    print_installed_dependency_versions "$python_cmd"
     return 0
 }
 
@@ -543,6 +635,10 @@ elif [ $# -eq 1 ]; then
             ACTION="update"
             TARGET_INPUT="$DEFAULT_PROJECT_NAME"
             ;;
+        update-deps|deps|upgrade-deps)
+            ACTION="update-deps"
+            TARGET_INPUT="$DEFAULT_PROJECT_NAME"
+            ;;
         *)
             ACTION="install"
             TARGET_INPUT="$1"
@@ -550,13 +646,16 @@ elif [ $# -eq 1 ]; then
     esac
 else
     case "$1" in
-        install|update)
+        install|update|update-deps|deps|upgrade-deps)
             ACTION="$1"
+            if [[ "$ACTION" == "deps" || "$ACTION" == "upgrade-deps" ]]; then
+                ACTION="update-deps"
+            fi
             TARGET_INPUT="$2"
             ;;
         *)
-            ui_print "red" "参数错误: 第一个参数只能是 install 或 update"
-            ui_print "yellow" "用法: $0 [install|update] [project_name|/abs/path]"
+            ui_print "red" "参数错误: 第一个参数只能是 install、update 或 update-deps"
+            ui_print "yellow" "用法: $0 [install|update|update-deps] [project_name|/abs/path]"
             ui_print "yellow" "兼容用法: $0 [project_name|/abs/path]"
             exit 127
             ;;
@@ -584,6 +683,16 @@ ui_print "green" "执行模式: $ACTION"
 ui_print "green" "项目名称: $PROJECT_NAME"
 ui_print "green" "安装目录: $DIR"
 ui_print "green" "修仙配置路径: $XIUXIAN_CONFIG_PATH_ABS"
+
+if [[ "$ACTION" == "update-deps" ]]; then
+    upgrade_python_dependencies || exit 127
+    ui_print "green" "========================================"
+    ui_print "green" "✓ 依赖更新完成！"
+    ui_print "green" "项目名称: $PROJECT_NAME"
+    ui_print "green" "安装目录: $DIR"
+    ui_print "green" "========================================"
+    exit 0
+fi
 
 # 检查目录状态并决定下一步操作
 if [[ "$ACTION" == "install" ]]; then
@@ -646,7 +755,7 @@ dependencies = [
     "nonebot2[websockets]>=2.4.4",
     "nonebot2[aiohttp]>=2.4.4",
     "nonebot-adapter-onebot>=2.4.6",
-    "nonebot-adapter-qq>=1.6.7"
+    "nonebot-adapter-qq>=1.7.1"
 ]
 
 [project.optional-dependencies]
@@ -799,25 +908,10 @@ EOF
     source "$VENV_PATH/bin/activate" > /dev/null 2>&1
     [ $? -eq 0 ] && show_status "激活 Python 虚拟环境" "success" || { show_status "激活 Python 虚拟环境" "failure"; exit 127; }
 
-    pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple > /dev/null 2>&1
-    show_status "设置 pip 镜像源为清华源" "success"
-
     cd "$DIR" || { show_status "进入安装目录 $DIR" "failure"; exit 127; }
     show_status "进入安装目录 $DIR" "success"
 
-    show_progress "安装 nb-cli"
-    pip install nb-cli==1.5.0 > /dev/null 2>&1
-    [ $? -eq 0 ] && show_status "安装 nb-cli" "success" || { show_status "安装 nb-cli" "failure"; exit 127; }
-
-    show_progress "安装 nonebot 驱动和 onebot.v11/qq 适配器"
-    pip install "nonebot2[fastapi,httpx,websockets,aiohttp]" "nonebot-adapter-onebot" "nonebot-adapter-qq" > /dev/null 2>&1
-    [ $? -eq 0 ] && show_status "安装 nonebot 核心驱动及适配器" "success" || show_status "安装 nonebot 核心驱动及适配器" "failure"
-
-    if [[ -f "$DIR/requirements.txt" ]]; then
-        show_progress "安装项目依赖（requirements.txt）"
-        pip install -r "$DIR/requirements.txt" > /dev/null 2>&1
-        [ $? -eq 0 ] && show_status "安装项目依赖（requirements.txt）" "success" || { show_status "安装项目依赖（requirements.txt）" "failure"; exit 127; }
-    fi
+    upgrade_python_dependencies || { show_status "安装/升级 Python 依赖" "failure"; exit 127; }
 
     show_progress "获取用户配置信息"
     read_or SUPERUSERS "请输入主人QQ号（SUPERUSERS），多个用英文逗号分隔" "123456"
@@ -916,6 +1010,53 @@ CRON_EOF
             echo "$PROJECT_NAME 未在运行"
         fi
         ;;
+    update-deps|deps|upgrade-deps)
+        PYTHON_BIN="$VENV_PATH/bin/python"
+        if [ ! -x "\$PYTHON_BIN" ]; then
+            echo "错误：未找到虚拟环境 Python: \$PYTHON_BIN"
+            exit 1
+        fi
+        "\$PYTHON_BIN" -m pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple >/dev/null 2>&1 || true
+        "\$PYTHON_BIN" -m pip install -U pip || exit 1
+        "\$PYTHON_BIN" -m pip install -U --upgrade-strategy eager \
+            "nb-cli" \
+            "nonebot2[fastapi,httpx,websockets,aiohttp]" \
+            "nonebot-adapter-onebot" \
+            "nonebot-adapter-qq" \
+            "nonebot_plugin_apscheduler" || exit 1
+        if [ -f "$DIR/requirements.txt" ]; then
+            "\$PYTHON_BIN" -m pip install -U --upgrade-strategy eager -r "$DIR/requirements.txt" || exit 1
+        fi
+        "\$PYTHON_BIN" - <<'PY'
+import importlib.util
+from importlib import metadata
+
+packages = {
+    "nb-cli": "nb_cli",
+    "nonebot2": "nonebot",
+    "nonebot-adapter-onebot": "nonebot.adapters.onebot.v11",
+    "nonebot-adapter-qq": "nonebot.adapters.qq",
+    "nonebot-plugin-apscheduler": "nonebot_plugin_apscheduler",
+}
+
+def module_location(module_name: str) -> str:
+    spec = importlib.util.find_spec(module_name)
+    if spec is None:
+        return "未找到模块"
+    if spec.submodule_search_locations:
+        return next(iter(spec.submodule_search_locations))
+    return spec.origin or "未知路径"
+
+print("当前核心依赖版本和安装路径：")
+for package, module_name in packages.items():
+    try:
+        version = metadata.version(package)
+    except metadata.PackageNotFoundError:
+        continue
+    print(f"  {package}: {version}")
+    print(f"    {module_name}: {module_location(module_name)}")
+PY
+        ;;
     format)
         if [ -n "\$2" ]; then
             if [ -f "\$2" ]; then
@@ -935,7 +1076,7 @@ CRON_EOF
         fi
         ;;
     *)
-        echo "用法: $PROJECT_NAME [start|stop|status|format [log_file]]"
+        echo "用法: $PROJECT_NAME [start|stop|status|update-deps|format [log_file]]"
         ;;
 esac
 EOF
@@ -948,25 +1089,7 @@ EOF
     setup_logrotate_and_cron || exit 127
 
 else # ACTION == "update" 模式下
-    # 确保依赖已更新
-    show_progress "更新模式：安装/更新项目依赖"
-    if [[ -f "$VENV_PATH/bin/activate" ]]; then
-        source "$VENV_PATH/bin/activate" > /dev/null 2>&1
-        if [[ -f "$DIR/requirements.txt" ]]; then
-            pip install -r "$DIR/requirements.txt" > /dev/null 2>&1
-            [ $? -eq 0 ] && show_status "更新项目依赖（requirements.txt）" "success" || show_status "更新项目依赖（requirements.txt）" "failure"
-        else
-            ui_print "yellow" "未找到 requirements.txt，跳过依赖更新"
-        fi
-    else
-        ui_print "yellow" "未检测到虚拟环境 $VENV_PATH，尝试使用系统默认 pip3 更新依赖"
-        if [[ -f "$DIR/requirements.txt" ]]; then
-            pip3 install -r "$DIR/requirements.txt" > /dev/null 2>&1
-            [ $? -eq 0 ] && show_status "更新项目依赖（requirements.txt）" "success" || show_status "更新项目依赖（requirements.txt）" "failure"
-        else
-            ui_print "yellow" "未找到 requirements.txt，跳过依赖更新"
-        fi
-    fi
+    upgrade_python_dependencies || show_status "更新 Python 依赖" "failure"
 
     # 强制覆盖 logrotate 和 cron 任务，确保最新
     setup_logrotate_and_cron || exit 127
@@ -992,5 +1115,6 @@ ui_print "green" "可用管理命令（直接在命令行输入）："
 ui_print "white" "    ${PROJECT_NAME} start   -> 后台启动机器人"
 ui_print "white" "    ${PROJECT_NAME} stop    -> 停止机器人"
 ui_print "white" "    ${PROJECT_NAME} status  -> 查看机器人运行日志 (按 Ctrl+A+D 退出)"
+ui_print "white" "    ${PROJECT_NAME} update-deps -> 更新 Python 依赖到当前索引最新版本"
 ui_print "white" "    ${PROJECT_NAME} format [log_file] -> 格式化机器人日志文件，输出到 .format.log"
 ui_print "green" "========================================"

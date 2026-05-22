@@ -6,9 +6,15 @@ curl -fsSL https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv_file/raw/ref
 ```
 xiu命令
 ```
-用法: xiu2 [start|stop|status|format [log_file]]
+用法: xiu2 [start|stop|status|update-deps|format [log_file]]
   start     - 启动 xiu2（默认，无需参数）
   status    - 查看 xiu2
   stop      - 停止 xiu2
+  update-deps - 更新 Python 依赖到当前 pip 索引最新版本，并输出核心依赖安装路径
   format [log_file] - 格式化日志文件（默认: /root/xiu2.log）
+```
+
+单独更新依赖
+```
+curl -fsSL https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv_file/raw/refs/heads/main/install.sh | bash -s -- update-deps
 ```
