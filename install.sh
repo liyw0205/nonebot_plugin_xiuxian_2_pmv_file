@@ -436,6 +436,9 @@ extract_release_resource() {
 # 写入/覆盖日志轮转配置 + cron任务
 setup_logrotate_and_cron() {
     ensure_dir "$DIR/logs" || return 1
+    ensure_dir "/etc/logrotate.d" || { show_status "创建目录 /etc/logrotate.d" "failure"; return 1; }
+    ensure_dir "/etc/cron.d" || { show_status "创建目录 /etc/cron.d" "failure"; return 1; }
+    ensure_dir "/var/lib/logrotate" || true
 
     # logrotate 配置文件
     cat <<EOF > "/etc/logrotate.d/$PROJECT_NAME"
@@ -730,13 +733,13 @@ fi
 if [[ "$ACTION" == "install" ]]; then
     show_progress "更新系统及安装依赖 (screen, curl, wget, git, python3, pip, venv, bc, tar, unzip, logrotate, zip)"
     if command -v apt &> /dev/null; then
-        apt update > /dev/null 2>&1 && apt upgrade -y > /dev/null 2>&1 && apt install -y screen curl wget git python3 python3-pip python3-venv bc tar unzip logrotate zip > /dev/null 2>&1
+        apt update > /dev/null 2>&1 && apt upgrade -y > /dev/null 2>&1 && apt install -y screen curl wget git python3 python3-pip python3-venv bc tar unzip logrotate cron zip > /dev/null 2>&1
     elif command -v yum &> /dev/null; then
-        yum update -y > /dev/null 2>&1 && yum install -y screen curl wget git python3 python3-pip python3-virtualenv bc tar unzip logrotate zip > /dev/null 2>&1
+        yum update -y > /dev/null 2>&1 && yum install -y screen curl wget git python3 python3-pip python3-virtualenv bc tar unzip logrotate cronie zip > /dev/null 2>&1
     elif command -v dnf &> /dev/null; then
-        dnf update -y > /dev/null 2>&1 && dnf install -y screen curl wget git python3 python3-pip python3-virtualenv bc tar unzip logrotate zip > /dev/null 2>&1
+        dnf update -y > /dev/null 2>&1 && dnf install -y screen curl wget git python3 python3-pip python3-virtualenv bc tar unzip logrotate cronie zip > /dev/null 2>&1
     else
-        ui_print "red" "不支持的包管理器，请手动安装依赖: screen, curl, wget, git, python3, python3-pip, python3-venv (或 python3-virtualenv), bc, tar, unzip, logrotate, zip"
+        ui_print "red" "不支持的包管理器，请手动安装依赖: screen, curl, wget, git, python3, python3-pip, python3-venv (或 python3-virtualenv), bc, tar, unzip, logrotate, cron/cronie, zip"
         exit 127
     fi
     [ $? -eq 0 ] && show_status "系统更新及依赖安装" "success" || { show_status "系统更新及依赖安装" "failure"; exit 127; }
@@ -871,6 +874,7 @@ export TZ=Asia/Shanghai
 if [ ! -d "$DIR/logs" ]; then
     mkdir -p "$DIR/logs"
 fi
+mkdir -p /etc/logrotate.d /etc/cron.d /var/lib/logrotate
 
 # 如果 logrotate 配置不存在，则创建
 if [ ! -f "/etc/logrotate.d/$PROJECT_NAME" ]; then
@@ -963,6 +967,7 @@ case "\$1" in
         if [ ! -d "$DIR/logs" ]; then
             mkdir -p "$DIR/logs"
         fi
+        mkdir -p /etc/logrotate.d /etc/cron.d /var/lib/logrotate
         if [ ! -f "/etc/logrotate.d/$PROJECT_NAME" ]; then
 cat <<'LR_EOF' > "/etc/logrotate.d/$PROJECT_NAME"
 "$DIR/${PROJECT_NAME}.log" {

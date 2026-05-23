@@ -14,8 +14,14 @@ mkdir "%DIR%" 2>nul
 cls
 color 3f
 echo %LINE%
-for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do set IP=%%a
-echo WLAN/IP 地址: %IP:~1%
+set "IP="
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do if not defined IP set "IP=%%a"
+if defined IP (
+    set "IP=!IP:~1!"
+) else (
+    set "IP=127.0.0.1"
+)
+echo WLAN/IP 地址: !IP!
 echo 项目地址：https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv
 echo OneBot V11 协议地址：
 echo     ws://127.0.0.1:%PORT%/onebot/v11/ws
@@ -29,12 +35,12 @@ cls
 if /i "%choice%"=="A" (
     color 07
     cd /d "%DIR%"
-    if not exist "%DIR%\myenv\Scripts\activate" (
+    if not exist "%DIR%\myenv\Scripts\activate.bat" (
         echo 未找到虚拟环境，请先安装（B）。
         pause
         goto zhuye
     )
-    call myenv\Scripts\activate
+    call "%DIR%\myenv\Scripts\activate.bat"
     cd /d "%DIR%\xiu2"
     nb run --reload
     goto zhuye
@@ -79,7 +85,7 @@ if exist "%cd%\python-3.11.0-amd64.exe" (
 if not exist "%PYTHON_INSTALLER_PATH%" (
     echo 下载地址: %PYTHON_INSTALLER_URL%
     echo 正在下载 Python 3.11.0 安装包...
-    powershell -Command "Invoke-WebRequest -Uri '%PYTHON_INSTALLER_URL%' -OutFile '%PYTHON_INSTALLER_PATH%' -UseBasicParsing"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri $args[0] -OutFile $args[1] -UseBasicParsing" "%PYTHON_INSTALLER_URL%" "%PYTHON_INSTALLER_PATH%"
 )
 
 echo 正在安装 Python 3.11.0 (静默安装，请稍候)...
@@ -100,34 +106,7 @@ echo %LINE%
 rmdir /s /q "%DIR%\tmp" 2>nul
 mkdir "%DIR%\tmp" 2>nul
 
-echo 正在自动选择可用代理，请稍候...
-set "proxy="
-set "best_proxy="
-set "best_time=999999"
-set "test_url=https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv/releases/latest/download/project.tar.gz"
-
-for %%P in (
-    https://gh.llkk.cc/
-    https://github.dpik.top/
-    https://git.yylx.win/
-    https://ghfile.geekertao.top/
-) do (
-    for /f %%T in ('powershell -NoProfile -Command "$u=''%%P%test_url%''; $sw=[System.Diagnostics.Stopwatch]::StartNew(); try { Invoke-WebRequest -Uri $u -Method Head -TimeoutSec 8 -UseBasicParsing ^| Out-Null; $sw.Stop(); [int]$sw.ElapsedMilliseconds } catch { 999999 }"') do (
-        set "cost=%%T"
-        if !cost! LSS !best_time! (
-            set "best_time=!cost!"
-            set "best_proxy=%%P"
-        )
-    )
-)
-
-if defined best_proxy (
-    set "proxy=%best_proxy%"
-    echo 自动选择代理: %proxy%  延迟约 %best_time% ms
-) else (
-    set "proxy="
-    echo 未找到可用代理，使用直连下载。
-)
+call :select_proxy
 echo %LINE%
 
 set "download_url=https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv/releases/latest/download/project.tar.gz"
@@ -140,8 +119,8 @@ if exist "%cd%\project.tar.gz" (
 echo [1/7] 检测 project.tar.gz ...
 if not exist "%DIR%\project.tar.gz" (
     echo [1/7] 正在下载 project.tar.gz ...
-    echo 下载地址: %proxy%%download_url%
-    powershell -Command "Invoke-WebRequest -Uri '%proxy%%download_url%' -OutFile '%DIR%\project.tar.gz' -UseBasicParsing"
+    echo 下载地址: !proxy!!download_url!
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri $args[0] -OutFile $args[1] -UseBasicParsing" "!proxy!!download_url!" "%DIR%\project.tar.gz"
     if errorlevel 1 (
         echo 下载失败！请检查网络或代理。
         echo %LINE%
@@ -197,21 +176,21 @@ python -c "import tarfile; tf = tarfile.open(r'%DIR%\project.tar.gz', 'r:gz'); t
 
 move "%DIR%\tmp\data\xiuxian" "%DIR%\xiu2\data" >nul
 move "%DIR%\tmp\nonebot_plugin_xiuxian_2" "%DIR%\xiu2\src\plugins" >nul
+if exist "%DIR%\tmp\requirements.txt" move /y "%DIR%\tmp\requirements.txt" "%DIR%\xiu2\requirements.txt" >nul
 
 echo [4/7] 创建虚拟环境 ...
 python -m venv "%DIR%\myenv"
 
 echo [5/7] 安装依赖（使用清华镜像）...
 cd /d "%DIR%"
-call myenv\Scripts\activate
-
-python -m pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
-python -m pip install --upgrade pip
-python -m pip install -U --upgrade-strategy eager "nb-cli" "nonebot2[fastapi,httpx,websockets,aiohttp]" "nonebot-adapter-onebot" "nonebot-adapter-qq" "nonebot_plugin_apscheduler"
-
+call "%DIR%\myenv\Scripts\activate.bat"
 cd /d "%DIR%\xiu2"
-python -m pip install -U --upgrade-strategy eager wget numpy ujson Pillow wcwidth pathlib asyncio aiohttp pydantic aiofiles flask requests
-python -c "import importlib.util as u; from importlib import metadata as md; mods=[('nonebot-adapter-qq','nonebot.adapters.qq'),('nonebot-adapter-onebot','nonebot.adapters.onebot.v11'),('nonebot2','nonebot')]; [print('%s: %s -> %s' % (p, md.version(p), (lambda s: next(iter(s.submodule_search_locations)) if s and s.submodule_search_locations else (s.origin if s else 'not found'))(u.find_spec(m)))) for p,m in mods]"
+call :update_python_dependencies
+if errorlevel 1 (
+    echo 依赖安装失败！
+    pause >nul
+    goto zhuye
+)
 
 echo [6/7] 创建配置文件 ...
 (
@@ -231,14 +210,19 @@ echo PORT = %PORT%
 ) > "%DIR%\xiu2\.env.dev"
 
 echo [7/7] 获取本机IP并显示启动信息 ...
-for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do set IPV4=%%a
-set IPV4=%IPV4:~1%
+set "IPV4="
+for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do if not defined IPV4 set "IPV4=%%a"
+if defined IPV4 (
+    set "IPV4=!IPV4:~1!"
+) else (
+    set "IPV4=127.0.0.1"
+)
 
 (
 echo color 07
-echo cd /d %DIR%
-echo call myenv\Scripts\activate
-echo cd /d %DIR%\xiu2
+echo cd /d "%DIR%"
+echo call "%DIR%\myenv\Scripts\activate.bat"
+echo cd /d "%DIR%\xiu2"
 echo nb run --reload
 ) > "%DIR%\启动修仙.bat"
 
@@ -246,7 +230,7 @@ echo.
 echo %LINE%
 echo 安装完成！
 echo 安装目录: %DIR%\xiu2
-echo ws://%IPV4%:%PORT%/onebot/v11/ws
+echo ws://!IPV4!:%PORT%/onebot/v11/ws
 echo ws://127.0.0.1:%PORT%/onebot/v11/ws
 echo %LINE%
 
@@ -272,34 +256,7 @@ if not exist "%DIR%\xiu2" (
 rmdir /s /q "%DIR%\tmp" 2>nul
 mkdir "%DIR%\tmp" 2>nul
 
-echo 正在自动选择可用代理，请稍候...
-set "proxy="
-set "best_proxy="
-set "best_time=999999"
-set "test_url=https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv/releases/latest/download/project.tar.gz"
-
-for %%P in (
-    https://gh.llkk.cc/
-    https://github.dpik.top/
-    https://git.yylx.win/
-    https://ghfile.geekertao.top/
-) do (
-    for /f %%T in ('powershell -NoProfile -Command "$u=''%%P%test_url%''; $sw=[System.Diagnostics.Stopwatch]::StartNew(); try { Invoke-WebRequest -Uri $u -Method Head -TimeoutSec 8 -UseBasicParsing ^| Out-Null; $sw.Stop(); [int]$sw.ElapsedMilliseconds } catch { 999999 }"') do (
-        set "cost=%%T"
-        if !cost! LSS !best_time! (
-            set "best_time=!cost!"
-            set "best_proxy=%%P"
-        )
-    )
-)
-
-if defined best_proxy (
-    set "proxy=%best_proxy%"
-    echo 自动选择代理: %proxy%  延迟约 %best_time% ms
-) else (
-    set "proxy="
-    echo 未找到可用代理，使用直连下载。
-)
+call :select_proxy
 echo %LINE%
 
 set "download_url=https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv/releases/latest/download/project.tar.gz"
@@ -307,8 +264,8 @@ set "download_url=https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv/relea
 if exist "%DIR%\project.tar.gz" del /f /q "%DIR%\project.tar.gz" >nul 2>nul
 
 echo [1/5] 下载最新 project.tar.gz ...
-echo 下载地址: %proxy%%download_url%
-powershell -Command "Invoke-WebRequest -Uri '%proxy%%download_url%' -OutFile '%DIR%\project.tar.gz' -UseBasicParsing"
+echo 下载地址: !proxy!!download_url!
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri $args[0] -OutFile $args[1] -UseBasicParsing" "!proxy!!download_url!" "%DIR%\project.tar.gz"
 if errorlevel 1 (
     echo 下载失败！请检查网络或代理。
     pause > nul
@@ -327,17 +284,22 @@ rmdir /s /q "%DIR%\xiu2\src\plugins\nonebot_plugin_xiuxian_2" 2>nul
 rmdir /s /q "%DIR%\xiu2\data\xiuxian" 2>nul
 move "%DIR%\tmp\nonebot_plugin_xiuxian_2" "%DIR%\xiu2\src\plugins\" >nul
 move "%DIR%\tmp\data\xiuxian" "%DIR%\xiu2\data\" >nul
+if exist "%DIR%\tmp\requirements.txt" move /y "%DIR%\tmp\requirements.txt" "%DIR%\xiu2\requirements.txt" >nul
 
 echo [4/5] 更新依赖（按需）...
 cd /d "%DIR%"
-if exist "%DIR%\myenv\Scripts\activate" (
-    call myenv\Scripts\activate
+if exist "%DIR%\myenv\Scripts\activate.bat" (
+    call "%DIR%\myenv\Scripts\activate.bat"
     cd /d "%DIR%\xiu2"
-    python -m pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
-    python -m pip install -U pip
-    python -m pip install -U --upgrade-strategy eager "nb-cli" "nonebot2[fastapi,httpx,websockets,aiohttp]" "nonebot-adapter-onebot" "nonebot-adapter-qq" "nonebot_plugin_apscheduler"
-    if exist "%DIR%\xiu2\requirements.txt" python -m pip install -U --upgrade-strategy eager -r "%DIR%\xiu2\requirements.txt"
-    python -c "import importlib.util as u; from importlib import metadata as md; mods=[('nonebot-adapter-qq','nonebot.adapters.qq'),('nonebot-adapter-onebot','nonebot.adapters.onebot.v11'),('nonebot2','nonebot')]; [print('%s: %s -> %s' % (p, md.version(p), (lambda s: next(iter(s.submodule_search_locations)) if s and s.submodule_search_locations else (s.origin if s else 'not found'))(u.find_spec(m)))) for p,m in mods]"
+    call :update_python_dependencies
+    if errorlevel 1 (
+        echo 依赖更新失败！
+        pause >nul
+        goto zhuye
+    )
+)
+if not exist "%DIR%\myenv\Scripts\activate.bat" (
+    echo 未找到虚拟环境，已跳过依赖更新。
 )
 
 echo [5/5] 清理临时文件 ...
@@ -358,19 +320,20 @@ echo            开始更新 Python 依赖
 echo %LINE%
 
 cd /d "%DIR%"
-if not exist "%DIR%\myenv\Scripts\activate" (
+if not exist "%DIR%\myenv\Scripts\activate.bat" (
     echo 未找到虚拟环境，请先安装（B）。
     pause >nul
     goto zhuye
 )
 
-call myenv\Scripts\activate
+call "%DIR%\myenv\Scripts\activate.bat"
 cd /d "%DIR%\xiu2"
-python -m pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
-python -m pip install -U pip
-python -m pip install -U --upgrade-strategy eager "nb-cli" "nonebot2[fastapi,httpx,websockets,aiohttp]" "nonebot-adapter-onebot" "nonebot-adapter-qq" "nonebot_plugin_apscheduler"
-if exist "%DIR%\xiu2\requirements.txt" python -m pip install -U --upgrade-strategy eager -r "%DIR%\xiu2\requirements.txt"
-python -c "import importlib.util as u; from importlib import metadata as md; mods=[('nonebot-adapter-qq','nonebot.adapters.qq'),('nonebot-adapter-onebot','nonebot.adapters.onebot.v11'),('nonebot2','nonebot')]; [print('%s: %s -> %s' % (p, md.version(p), (lambda s: next(iter(s.submodule_search_locations)) if s and s.submodule_search_locations else (s.origin if s else 'not found'))(u.find_spec(m)))) for p,m in mods]"
+call :update_python_dependencies
+if errorlevel 1 (
+    echo 依赖更新失败！
+    pause >nul
+    goto zhuye
+)
 
 echo.
 echo %LINE%
@@ -394,3 +357,50 @@ if /i "%choice%"=="A" (
     goto install
 )
 goto zhuye
+
+:select_proxy
+echo 正在自动选择可用代理，请稍候...
+set "proxy="
+set "best_proxy="
+set "best_time=999999"
+set "test_url=https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv/releases/latest/download/project.tar.gz"
+
+for %%P in (
+    https://gh.llkk.cc/
+    https://github.dpik.top/
+    https://git.yylx.win/
+    https://ghfile.geekertao.top/
+) do (
+    for /f %%T in ('powershell -NoProfile -ExecutionPolicy Bypass -Command "$u=$args[0]; $sw=[System.Diagnostics.Stopwatch]::StartNew(); try { $null = Invoke-WebRequest -Uri $u -Method Head -TimeoutSec 8 -UseBasicParsing; $sw.Stop(); [int]$sw.ElapsedMilliseconds } catch { 999999 }" "%%P%test_url%"') do (
+        set "cost=%%T"
+        if !cost! LSS !best_time! (
+            set "best_time=!cost!"
+            set "best_proxy=%%P"
+        )
+    )
+)
+
+if defined best_proxy (
+    set "proxy=!best_proxy!"
+    echo 自动选择代理: !proxy!  延迟约 !best_time! ms
+) else (
+    set "proxy="
+    echo 未找到可用代理，使用直连下载。
+)
+exit /b 0
+
+:update_python_dependencies
+python -m pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+if errorlevel 1 exit /b 1
+python -m pip install -U pip
+if errorlevel 1 exit /b 1
+python -m pip install -U --upgrade-strategy eager "nb-cli" "nonebot2[fastapi,httpx,websockets,aiohttp]" "nonebot-adapter-onebot" "nonebot-adapter-qq" "nonebot_plugin_apscheduler"
+if errorlevel 1 exit /b 1
+python -m pip install -U --upgrade-strategy eager wget numpy ujson Pillow wcwidth pathlib asyncio aiohttp pydantic aiofiles flask requests
+if errorlevel 1 exit /b 1
+if exist "%DIR%\xiu2\requirements.txt" (
+    python -m pip install -U --upgrade-strategy eager -r "%DIR%\xiu2\requirements.txt"
+    if errorlevel 1 exit /b 1
+)
+python -c "import importlib.util as u; from importlib import metadata as md; mods=[('nonebot-adapter-qq','nonebot.adapters.qq'),('nonebot-adapter-onebot','nonebot.adapters.onebot.v11'),('nonebot2','nonebot')]; [print('%%s: %%s -> %%s' %% (p, md.version(p), (lambda s: next(iter(s.submodule_search_locations)) if s and s.submodule_search_locations else (s.origin if s else 'not found'))(u.find_spec(m)))) for p,m in mods]"
+exit /b %errorlevel%
