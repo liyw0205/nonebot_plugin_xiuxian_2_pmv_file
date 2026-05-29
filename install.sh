@@ -74,9 +74,15 @@ read_or() {
     local var_name="$1"
     local prompt="$2"
     local default_value="$3"
+    local input
 
-    printf "%s (默认: %s): " "$prompt" "$default_value"
-    read -r input
+    if [[ -r /dev/tty ]] && { true < /dev/tty; } 2>/dev/null; then
+        printf "%s (默认: %s): " "$prompt" "$default_value" > /dev/tty
+        read -r input < /dev/tty || input=""
+    else
+        printf "%s (默认: %s): " "$prompt" "$default_value"
+        read -r input || input=""
+    fi
     if [[ -z "$input" ]]; then
         input="$default_value"
     fi
@@ -88,6 +94,32 @@ ensure_dir() {
     local d="$1"
     mkdir -p "$d" || return 1
     return 0
+}
+
+ensure_default_env_files() {
+    ensure_dir "$DIR" || return 1
+
+    if [[ ! -f "$DIR/.env" ]]; then
+        cat <<'EOF' > "$DIR/.env"
+ENVIRONMENT=dev
+DRIVER=~fastapi+~httpx+~websockets+~aiohttp
+EOF
+        show_status "创建默认 .env" "success"
+    fi
+
+    if [[ ! -f "$DIR/.env.dev" ]]; then
+        cat <<'EOF' > "$DIR/.env.dev"
+LOG_LEVEL=INFO
+
+SUPERUSERS = ["123456"]
+COMMAND_START = [""]
+NICKNAME = ["堂堂"]
+DEBUG = False
+HOST = 0.0.0.0
+PORT = 8080
+EOF
+        show_status "创建默认 .env.dev" "success"
+    fi
 }
 
 print_installed_dependency_versions() {
@@ -624,14 +656,55 @@ DEFAULT_PROJECT_NAME="xiu2"
 ACTION="install"
 TARGET_INPUT="$DEFAULT_PROJECT_NAME"
 
+show_main_menu() {
+    ui_print "green" "========================================"
+    ui_print "green" "请选择要执行的操作"
+    ui_print "white" "1. 安装"
+    ui_print "white" "2. 重装（删除目标安装目录后重新安装）"
+    ui_print "white" "3. 更新"
+    ui_print "white" "4. 更新依赖"
+    ui_print "white" "5. 退出"
+    ui_print "green" "========================================"
+
+    local choice
+    read_or choice "请输入编号" "1"
+    case "$choice" in
+        1)
+            ACTION="install"
+            ;;
+        2)
+            ACTION="reinstall"
+            ;;
+        3)
+            ACTION="update"
+            ;;
+        4)
+            ACTION="update-deps"
+            ;;
+        5)
+            ui_print "yellow" "已退出。"
+            exit 0
+            ;;
+        *)
+            ui_print "red" "无效选择：$choice"
+            exit 127
+            ;;
+    esac
+
+    read_or TARGET_INPUT "请输入项目名或绝对路径" "$DEFAULT_PROJECT_NAME"
+}
+
 # 根据参数判断动作和目标
 if [ $# -eq 0 ]; then
-    ACTION="install"
-    TARGET_INPUT="$DEFAULT_PROJECT_NAME"
+    show_main_menu
 elif [ $# -eq 1 ]; then
     case "$1" in
         install)
             ACTION="install"
+            TARGET_INPUT="$DEFAULT_PROJECT_NAME"
+            ;;
+        reinstall)
+            ACTION="reinstall"
             TARGET_INPUT="$DEFAULT_PROJECT_NAME"
             ;;
         update)
@@ -649,7 +722,7 @@ elif [ $# -eq 1 ]; then
     esac
 else
     case "$1" in
-        install|update|update-deps|deps|upgrade-deps)
+        install|reinstall|update|update-deps|deps|upgrade-deps)
             ACTION="$1"
             if [[ "$ACTION" == "deps" || "$ACTION" == "upgrade-deps" ]]; then
                 ACTION="update-deps"
@@ -657,8 +730,8 @@ else
             TARGET_INPUT="$2"
             ;;
         *)
-            ui_print "red" "参数错误: 第一个参数只能是 install、update 或 update-deps"
-            ui_print "yellow" "用法: $0 [install|update|update-deps] [project_name|/abs/path]"
+            ui_print "red" "参数错误: 第一个参数只能是 install、reinstall、update 或 update-deps"
+            ui_print "yellow" "用法: $0 [install|reinstall|update|update-deps] [project_name|/abs/path]"
             ui_print "yellow" "兼容用法: $0 [project_name|/abs/path]"
             exit 127
             ;;
@@ -686,6 +759,21 @@ ui_print "green" "执行模式: $ACTION"
 ui_print "green" "项目名称: $PROJECT_NAME"
 ui_print "green" "安装目录: $DIR"
 ui_print "green" "修仙配置路径: $XIUXIAN_CONFIG_PATH_ABS"
+
+if [[ "$ACTION" == "reinstall" ]]; then
+    if [[ -d "$DIR" ]]; then
+        ui_print "red" "重装会删除目标安装目录：$DIR"
+        ui_print "yellow" "如需保留数据，请先手动备份 data/xiuxian。"
+        read_or REINSTALL_CONFIRM "确认重装请输入 YES" "NO"
+        if [[ "$REINSTALL_CONFIRM" != "YES" ]]; then
+            ui_print "yellow" "已取消重装。"
+            exit 0
+        fi
+        rm -rf "$DIR" || { show_status "删除旧安装目录 $DIR" "failure"; exit 127; }
+        show_status "删除旧安装目录 $DIR" "success"
+    fi
+    ACTION="install"
+fi
 
 if [[ "$ACTION" == "update-deps" ]]; then
     upgrade_python_dependencies || exit 127
@@ -822,16 +910,16 @@ show_progress "移动文件到安装目录"
 
 # 移动插件核心文件
 if [[ -d "$TEMP_EXTRACT_DIR/nonebot_plugin_xiuxian_2" ]]; then
-    # 确保目标插件目录存在，以便 cp -rf 正确合并内容
+    # 确保目标插件目录存在，以便合并覆盖包内文件
     ensure_dir "$DIR/src/plugins/nonebot_plugin_xiuxian_2"
-    cp -rf "$TEMP_EXTRACT_DIR/nonebot_plugin_xiuxian_2/"* "$DIR/src/plugins/nonebot_plugin_xiuxian_2/" || { show_status "移动插件文件" "failure"; exit 127; }
+    cp -a "$TEMP_EXTRACT_DIR/nonebot_plugin_xiuxian_2/." "$DIR/src/plugins/nonebot_plugin_xiuxian_2/" || { show_status "移动插件文件" "failure"; exit 127; }
     show_status "移动插件文件" "success"
 fi
 
 # 移动 data 目录 (例如字体、图片等)
 if [[ -d "$TEMP_EXTRACT_DIR/data" ]]; then
     ensure_dir "$DIR/data"
-    cp -rf "$TEMP_EXTRACT_DIR/data/"* "$DIR/data/" || { show_status "移动data目录" "failure"; exit 127; }
+    cp -a "$TEMP_EXTRACT_DIR/data/." "$DIR/data/" || { show_status "移动data目录" "failure"; exit 127; }
     show_status "移动data目录" "success"
 fi
 
@@ -1096,6 +1184,11 @@ EOF
 else # ACTION == "update" 模式下
     upgrade_python_dependencies || show_status "更新 Python 依赖" "failure"
 
+    if [[ ! -f "$DIR/.env.dev" ]]; then
+        ui_print "yellow" "未找到 $DIR/.env.dev，将创建默认配置。"
+        ensure_default_env_files || { show_status "创建默认配置文件" "failure"; exit 127; }
+    fi
+
     # 强制覆盖 logrotate 和 cron 任务，确保最新
     setup_logrotate_and_cron || exit 127
 fi
@@ -1113,6 +1206,7 @@ ui_print "green" "安装目录: $DIR"
 ui_print "green" "日志文件:"
 ui_print "white" "    当前日志: $DIR/${PROJECT_NAME}.log"
 ui_print "white" "    历史日志: $DIR/logs (日志轮转后移入)"
+ui_print "green" "数据库: SQLite（默认本地 data/xiuxian/*.db）"
 ui_print "green" "OneBot V11 协议地址（用于连接 go-cqhttp 或其他适配器）："
 ui_print "white" "    ws://${IPV4}:${PORT_SHOW}/onebot/v11/ws"
 ui_print "white" "    ws://127.0.0.1:${PORT_SHOW}/onebot/v11/ws"

@@ -7,7 +7,8 @@ set "LINE========================================="
 
 title xiuxian
 set "PORT=8080"
-set "DIR=C:\nb"
+set "DEFAULT_DRIVE=C"
+call :select_drive
 mkdir "%DIR%" 2>nul
 
 :zhuye
@@ -22,11 +23,12 @@ if defined IP (
     set "IP=127.0.0.1"
 )
 echo WLAN/IP 地址: !IP!
+echo 当前安装目录: %DIR%\xiu2
 echo 项目地址：https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv
 echo OneBot V11 协议地址：
 echo     ws://127.0.0.1:%PORT%/onebot/v11/ws
 echo %LINE%
-echo A.启动  B.安装  C.重装  D.更新  E.更新依赖
+echo A.启动  B.安装  C.重装  D.更新  E.更新依赖  F.切换安装盘
 echo %LINE%
 
 set choice=
@@ -50,7 +52,11 @@ if /i "%choice%"=="B" goto install
 if /i "%choice%"=="C" goto uninstall
 if /i "%choice%"=="D" goto update
 if /i "%choice%"=="E" goto update_deps
-
+if /i "%choice%"=="F" (
+    call :select_drive
+    mkdir "!DIR!" 2>nul
+    goto zhuye
+)
 echo 输入错误，请重新选择！
 echo %LINE%
 echo 请按任意键继续...
@@ -85,7 +91,7 @@ if exist "%cd%\python-3.11.0-amd64.exe" (
 if not exist "%PYTHON_INSTALLER_PATH%" (
     echo 下载地址: %PYTHON_INSTALLER_URL%
     echo 正在下载 Python 3.11.0 安装包...
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri $args[0] -OutFile $args[1] -UseBasicParsing" "%PYTHON_INSTALLER_URL%" "%PYTHON_INSTALLER_PATH%"
+    call :download_file "%PYTHON_INSTALLER_URL%" "%PYTHON_INSTALLER_PATH%"
 )
 
 echo 正在安装 Python 3.11.0 (静默安装，请稍候)...
@@ -120,7 +126,7 @@ echo [1/7] 检测 project.tar.gz ...
 if not exist "%DIR%\project.tar.gz" (
     echo [1/7] 正在下载 project.tar.gz ...
     echo 下载地址: !proxy!!download_url!
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri $args[0] -OutFile $args[1] -UseBasicParsing" "!proxy!!download_url!" "%DIR%\project.tar.gz"
+    call :download_file "!proxy!!download_url!" "%DIR%\project.tar.gz"
     if errorlevel 1 (
         echo 下载失败！请检查网络或代理。
         echo %LINE%
@@ -230,6 +236,7 @@ echo.
 echo %LINE%
 echo 安装完成！
 echo 安装目录: %DIR%\xiu2
+echo 数据库: SQLite（本地 data\xiuxian\*.db）
 echo ws://!IPV4!:%PORT%/onebot/v11/ws
 echo ws://127.0.0.1:%PORT%/onebot/v11/ws
 echo %LINE%
@@ -265,7 +272,7 @@ if exist "%DIR%\project.tar.gz" del /f /q "%DIR%\project.tar.gz" >nul 2>nul
 
 echo [1/5] 下载最新 project.tar.gz ...
 echo 下载地址: !proxy!!download_url!
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri $args[0] -OutFile $args[1] -UseBasicParsing" "!proxy!!download_url!" "%DIR%\project.tar.gz"
+call :download_file "!proxy!!download_url!" "%DIR%\project.tar.gz"
 if errorlevel 1 (
     echo 下载失败！请检查网络或代理。
     pause > nul
@@ -280,10 +287,14 @@ python -c "import tarfile; tf = tarfile.open(r'%DIR%\project.tar.gz', 'r:gz'); t
 )
 
 echo [3/5] 覆盖插件与数据 ...
-rmdir /s /q "%DIR%\xiu2\src\plugins\nonebot_plugin_xiuxian_2" 2>nul
-rmdir /s /q "%DIR%\xiu2\data\xiuxian" 2>nul
-move "%DIR%\tmp\nonebot_plugin_xiuxian_2" "%DIR%\xiu2\src\plugins\" >nul
-move "%DIR%\tmp\data\xiuxian" "%DIR%\xiu2\data\" >nul
+mkdir "%DIR%\xiu2\src\plugins\nonebot_plugin_xiuxian_2" 2>nul
+mkdir "%DIR%\xiu2\data" 2>nul
+if exist "%DIR%\tmp\nonebot_plugin_xiuxian_2" (
+    xcopy "%DIR%\tmp\nonebot_plugin_xiuxian_2\*" "%DIR%\xiu2\src\plugins\nonebot_plugin_xiuxian_2\" /E /I /Y >nul
+)
+if exist "%DIR%\tmp\data" (
+    xcopy "%DIR%\tmp\data\*" "%DIR%\xiu2\data\" /E /I /Y >nul
+)
 if exist "%DIR%\tmp\requirements.txt" move /y "%DIR%\tmp\requirements.txt" "%DIR%\xiu2\requirements.txt" >nul
 
 echo [4/5] 更新依赖（按需）...
@@ -358,12 +369,50 @@ if /i "%choice%"=="A" (
 )
 goto zhuye
 
+:select_drive
+cls
+echo %LINE%
+echo              请选择安装盘
+echo %LINE%
+echo 本机磁盘空间：
+call :show_disk_space
+echo %LINE%
+echo 直接回车默认使用 %DEFAULT_DRIVE%: 盘，安装目录为 盘符:\nb
+set "DRIVE_CHOICE="
+set /p DRIVE_CHOICE=请输入安装盘符:
+if not defined DRIVE_CHOICE set "DRIVE_CHOICE=%DEFAULT_DRIVE%"
+set "DRIVE_CHOICE=%DRIVE_CHOICE:"=%"
+set "DRIVE_CHOICE=%DRIVE_CHOICE::=%"
+set "DRIVE_CHOICE=%DRIVE_CHOICE:\=%"
+set "DRIVE_CHOICE=%DRIVE_CHOICE:/=%"
+set "DRIVE_CHOICE=%DRIVE_CHOICE: =%"
+set "DRIVE_CHOICE=%DRIVE_CHOICE:~0,1%"
+if not defined DRIVE_CHOICE set "DRIVE_CHOICE=%DEFAULT_DRIVE%"
+for %%D in (A B C D E F G H I J K L M N O P Q R S T U V W X Y Z) do if /i "%DRIVE_CHOICE%"=="%%D" set "DRIVE_CHOICE=%%D"
+if not exist "%DRIVE_CHOICE%:\" (
+    echo 未检测到 %DRIVE_CHOICE%: 盘，请重新选择。
+    pause >nul
+    goto select_drive
+)
+set "DIR=%DRIVE_CHOICE%:\nb"
+echo 已选择安装目录: %DIR%
+timeout /t 1 >nul
+exit /b 0
+
+:show_disk_space
+set "PS_DISK_SPACE=JABFAHIAcgBvAHIAQQBjAHQAaQBvAG4AUAByAGUAZgBlAHIAZQBuAGMAZQAgAD0AIAAnAFMAdABvAHAAJwAKAEcAZQB0AC0AQwBpAG0ASQBuAHMAdABhAG4AYwBlACAAVwBpAG4AMwAyAF8ATABvAGcAaQBjAGEAbABEAGkAcwBrACAALQBGAGkAbAB0AGUAcgAgACcARAByAGkAdgBlAFQAeQBwAGUAPQAzACcAIAB8AAoAIAAgACAAIABTAG8AcgB0AC0ATwBiAGoAZQBjAHQAIABEAGUAdgBpAGMAZQBJAEQAIAB8AAoAIAAgACAAIABGAG8AcgBFAGEAYwBoAC0ATwBiAGoAZQBjAHQAIAB7AAoAIAAgACAAIAAgACAAIAAgACQAdABvAHQAYQBsACAAPQAgAFsAbQBhAHQAaABdADoAOgBSAG8AdQBuAGQAKAAkAF8ALgBTAGkAegBlACAALwAgADEARwBCACwAIAAyACkACgAgACAAIAAgACAAIAAgACAAJABmAHIAZQBlACAAPQAgAFsAbQBhAHQAaABdADoAOgBSAG8AdQBuAGQAKAAkAF8ALgBGAHIAZQBlAFMAcABhAGMAZQAgAC8AIAAxAEcAQgAsACAAMgApAAoAIAAgACAAIAAgACAAIAAgACQAdQBzAGUAZAAgAD0AIABbAG0AYQB0AGgAXQA6ADoAUgBvAHUAbgBkACgAKAAkAF8ALgBTAGkAegBlACAALQAgACQAXwAuAEYAcgBlAGUAUwBwAGEAYwBlACkAIAAvACAAMQBHAEIALAAgADIAKQAKACAAIAAgACAAIAAgACAAIAAnAHsAMAAsAC0ANAB9ACAAO2B6evSVOgAgAHsAMQAsADEAMAA6AE4AMgB9ACAARwBCACAAIADyXSh1OgAgAHsAMgAsADEAMAA6AE4AMgB9ACAARwBCACAAIADvUyh1OgAgAHsAMwAsADEAMAA6AE4AMgB9ACAARwBCACcAIAAtAGYAIAAkAF8ALgBEAGUAdgBpAGMAZQBJAEQALAAgACQAdABvAHQAYQBsACwAIAAkAHUAcwBlAGQALAAgACQAZgByAGUAZQAKACAAIAAgACAAfQA="
+powershell.exe -NoP -NonI -EP Bypass -EncodedCommand "%PS_DISK_SPACE%"
+if errorlevel 1 echo 无法自动读取磁盘空间，可直接输入要安装的盘符。
+set "PS_DISK_SPACE="
+exit /b 0
+
 :select_proxy
 echo 正在自动选择可用代理，请稍候...
 set "proxy="
 set "best_proxy="
 set "best_time=999999"
 set "test_url=https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv/releases/latest/download/project.tar.gz"
+set "PS_MEASURE_PROXY=JABzAHcAIAA9ACAAWwBTAHkAcwB0AGUAbQAuAEQAaQBhAGcAbgBvAHMAdABpAGMAcwAuAFMAdABvAHAAdwBhAHQAYwBoAF0AOgA6AFMAdABhAHIAdABOAGUAdwAoACkACgB0AHIAeQAgAHsACgAgACAAIAAgACQAbgB1AGwAbAAgAD0AIABJAG4AdgBvAGsAZQAtAFcAZQBiAFIAZQBxAHUAZQBzAHQAIAAtAFUAcgBpACAAJABlAG4AdgA6AFAAUwBfAE0ARQBBAFMAVQBSAEUAXwBVAFIATAAgAC0ATQBlAHQAaABvAGQAIABIAGUAYQBkACAALQBUAGkAbQBlAG8AdQB0AFMAZQBjACAAOAAgAC0AVQBzAGUAQgBhAHMAaQBjAFAAYQByAHMAaQBuAGcACgAgACAAIAAgACQAcwB3AC4AUwB0AG8AcAAoACkACgAgACAAIAAgAFsAaQBuAHQAXQAkAHMAdwAuAEUAbABhAHAAcwBlAGQATQBpAGwAbABpAHMAZQBjAG8AbgBkAHMACgB9ACAAYwBhAHQAYwBoACAAewAKACAAIAAgACAAOQA5ADkAOQA5ADkACgB9AA=="
 
 for %%P in (
     https://gh.llkk.cc/
@@ -371,7 +420,8 @@ for %%P in (
     https://git.yylx.win/
     https://ghfile.geekertao.top/
 ) do (
-    for /f %%T in ('powershell -NoProfile -ExecutionPolicy Bypass -Command "$u=$args[0]; $sw=[System.Diagnostics.Stopwatch]::StartNew(); try { $null = Invoke-WebRequest -Uri $u -Method Head -TimeoutSec 8 -UseBasicParsing; $sw.Stop(); [int]$sw.ElapsedMilliseconds } catch { 999999 }" "%%P%test_url%"') do (
+    set "PS_MEASURE_URL=%%P%test_url%"
+    for /f %%T in ('powershell.exe -NoP -NonI -EP Bypass -EncodedCommand "%PS_MEASURE_PROXY%"') do (
         set "cost=%%T"
         if !cost! LSS !best_time! (
             set "best_time=!cost!"
@@ -387,6 +437,43 @@ if defined best_proxy (
     set "proxy="
     echo 未找到可用代理，使用直连下载。
 )
+set "PS_MEASURE_PROXY="
+set "PS_MEASURE_URL="
+exit /b 0
+
+:download_file
+set "PS_DOWNLOAD_URL=%~1"
+set "PS_DOWNLOAD_OUT=%~2"
+set "PS_DOWNLOAD=JABFAHIAcgBvAHIAQQBjAHQAaQBvAG4AUAByAGUAZgBlAHIAZQBuAGMAZQAgAD0AIAAnAFMAdABvAHAAJwAKAEkAbgB2AG8AawBlAC0AVwBlAGIAUgBlAHEAdQBlAHMAdAAgAC0AVQByAGkAIAAkAGUAbgB2ADoAUABTAF8ARABPAFcATgBMAE8AQQBEAF8AVQBSAEwAIAAtAE8AdQB0AEYAaQBsAGUAIAAkAGUAbgB2ADoAUABTAF8ARABPAFcATgBMAE8AQQBEAF8ATwBVAFQAIAAtAFUAcwBlAEIAYQBzAGkAYwBQAGEAcgBzAGkAbgBnAA=="
+powershell.exe -NoP -NonI -EP Bypass -EncodedCommand "%PS_DOWNLOAD%"
+set "PS_EXIT=%errorlevel%"
+set "PS_DOWNLOAD_URL="
+set "PS_DOWNLOAD_OUT="
+set "PS_DOWNLOAD="
+exit /b %PS_EXIT%
+
+:ensure_default_env_files
+if not exist "%DIR%\xiu2" mkdir "%DIR%\xiu2" 2>nul
+if not exist "%DIR%\xiu2\.env" (
+    (
+    echo ENVIRONMENT=dev
+    echo DRIVER=~fastapi+~httpx+~websockets+~aiohttp
+    ) > "%DIR%\xiu2\.env"
+    echo 已创建默认配置: %DIR%\xiu2\.env
+)
+if not exist "%DIR%\xiu2\.env.dev" (
+    (
+    echo LOG_LEVEL=INFO
+    echo.
+    echo SUPERUSERS = ["123456"]
+    echo COMMAND_START = [""]
+    echo NICKNAME = ["堂堂"]
+    echo DEBUG = False
+    echo HOST = 0.0.0.0
+    echo PORT = %PORT%
+    ) > "%DIR%\xiu2\.env.dev"
+    echo 已创建默认配置: %DIR%\xiu2\.env.dev
+)
 exit /b 0
 
 :update_python_dependencies
@@ -394,9 +481,19 @@ python -m pip config set global.index-url https://mirrors.tuna.tsinghua.edu.cn/p
 if errorlevel 1 exit /b 1
 python -m pip install -U pip
 if errorlevel 1 exit /b 1
-python -m pip install -U --upgrade-strategy eager "nb-cli" "nonebot2[fastapi,httpx,websockets,aiohttp]" "nonebot-adapter-onebot" "nonebot-adapter-qq" "nonebot_plugin_apscheduler"
+python -m pip install -U "nb-cli==1.5.0"
 if errorlevel 1 exit /b 1
-python -m pip install -U --upgrade-strategy eager wget numpy ujson Pillow wcwidth pathlib asyncio aiohttp pydantic aiofiles flask requests
+python -m pip install -U --upgrade-strategy eager wget numpy ujson Pillow wcwidth pathlib asyncio aiohttp pydantic aiofiles flask requests nonebot_plugin_apscheduler
+if errorlevel 1 exit /b 1
+nb driver install fastapi
+if errorlevel 1 exit /b 1
+nb driver install httpx
+if errorlevel 1 exit /b 1
+nb driver install websockets
+if errorlevel 1 exit /b 1
+nb adapter install onebot.v11
+if errorlevel 1 exit /b 1
+nb adapter install qq
 if errorlevel 1 exit /b 1
 if exist "%DIR%\xiu2\requirements.txt" (
     python -m pip install -U --upgrade-strategy eager -r "%DIR%\xiu2\requirements.txt"

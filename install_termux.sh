@@ -73,8 +73,13 @@ read_or() {
     local default_value="$3"
     local input
 
-    printf "%s (默认: %s): " "$prompt" "$default_value"
-    read -r input
+    if [[ -r /dev/tty ]] && { true < /dev/tty; } 2>/dev/null; then
+        printf "%s (默认: %s): " "$prompt" "$default_value" > /dev/tty
+        read -r input < /dev/tty || input=""
+    else
+        printf "%s (默认: %s): " "$prompt" "$default_value"
+        read -r input || input=""
+    fi
     if [[ -z "$input" ]]; then
         input="$default_value"
     fi
@@ -83,6 +88,32 @@ read_or() {
 
 ensure_dir() {
     mkdir -p "$1"
+}
+
+ensure_default_env_files() {
+    ensure_dir "$DIR" || return 1
+
+    if [[ ! -f "$DIR/.env" ]]; then
+        cat > "$DIR/.env" <<'EOF'
+ENVIRONMENT=dev
+DRIVER=~fastapi+~httpx+~websockets+~aiohttp
+EOF
+        show_status "创建默认 .env" "success"
+    fi
+
+    if [[ ! -f "$DIR/.env.dev" ]]; then
+        cat > "$DIR/.env.dev" <<'EOF'
+LOG_LEVEL=INFO
+
+SUPERUSERS = ["123456"]
+COMMAND_START = [""]
+NICKNAME = ["堂堂"]
+DEBUG = False
+HOST = 0.0.0.0
+PORT = 8080
+EOF
+        show_status "创建默认 .env.dev" "success"
+    fi
 }
 
 detect_termux() {
@@ -94,11 +125,49 @@ detect_termux() {
 
 usage() {
     cat <<EOF
-用法: $0 [install|update|update-deps] [project_name|/abs/path]
+用法: $0 [install|reinstall|update|update-deps] [project_name|/abs/path]
 
 默认安装到: $TERMUX_HOME/$DEFAULT_PROJECT_NAME
 默认虚拟环境: $VENV_PATH
 EOF
+}
+
+show_main_menu() {
+    ui_print green "========================================"
+    ui_print green "请选择要执行的操作"
+    ui_print white "1. 安装"
+    ui_print white "2. 重装（删除目标安装目录后重新安装）"
+    ui_print white "3. 更新"
+    ui_print white "4. 更新依赖"
+    ui_print white "5. 退出"
+    ui_print green "========================================"
+
+    local choice
+    read_or choice "请输入编号" "1"
+    case "$choice" in
+        1)
+            ACTION="install"
+            ;;
+        2)
+            ACTION="reinstall"
+            ;;
+        3)
+            ACTION="update"
+            ;;
+        4)
+            ACTION="update-deps"
+            ;;
+        5)
+            ui_print yellow "已退出。"
+            exit 0
+            ;;
+        *)
+            ui_print red "无效选择：$choice"
+            exit 127
+            ;;
+    esac
+
+    read_or TARGET_INPUT "请输入项目名或绝对路径" "$DEFAULT_PROJECT_NAME"
 }
 
 parse_args() {
@@ -106,11 +175,12 @@ parse_args() {
     TARGET_INPUT="$DEFAULT_PROJECT_NAME"
 
     if [[ $# -eq 0 ]]; then
+        show_main_menu
         return 0
     fi
 
     case "$1" in
-        install|update|update-deps|deps|upgrade-deps)
+        install|reinstall|update|update-deps|deps|upgrade-deps)
             ACTION="$1"
             [[ "$ACTION" == "deps" || "$ACTION" == "upgrade-deps" ]] && ACTION="update-deps"
             if [[ $# -ge 2 ]]; then
@@ -429,9 +499,8 @@ install_release_files() {
 
     show_progress "移动文件到安装目录"
     if [[ -d "$temp_extract_dir/nonebot_plugin_xiuxian_2" ]]; then
-        rm -rf "$DIR/src/plugins/nonebot_plugin_xiuxian_2"
-        ensure_dir "$DIR/src/plugins"
-        cp -a "$temp_extract_dir/nonebot_plugin_xiuxian_2" "$DIR/src/plugins/"
+        ensure_dir "$DIR/src/plugins/nonebot_plugin_xiuxian_2"
+        cp -a "$temp_extract_dir/nonebot_plugin_xiuxian_2/." "$DIR/src/plugins/nonebot_plugin_xiuxian_2/"
         show_status "移动插件文件" "success"
     else
         show_status "移动插件文件" "failure"
@@ -439,8 +508,8 @@ install_release_files() {
     fi
 
     if [[ -d "$temp_extract_dir/data" ]]; then
-        ensure_dir "$DIR"
-        cp -a "$temp_extract_dir/data" "$DIR/"
+        ensure_dir "$DIR/data"
+        cp -a "$temp_extract_dir/data/." "$DIR/data/"
         show_status "移动 data 目录" "success"
     fi
 
@@ -604,6 +673,7 @@ final_message() {
     ui_print green "虚拟环境: $VENV_PATH"
     ui_print green "日志文件:"
     ui_print white "    当前日志: $DIR/${PROJECT_NAME}.log"
+    ui_print green "数据库: SQLite（默认本地 data/xiuxian/*.db）"
     ui_print green "OneBot V11 协议地址："
     ui_print white "    ws://127.0.0.1:${port_show}/onebot/v11/ws"
     ui_print green "可用管理命令："
@@ -625,6 +695,24 @@ main() {
     ui_print green "项目名称: $PROJECT_NAME"
     ui_print green "安装目录: $DIR"
     ui_print green "虚拟环境: $VENV_PATH"
+
+    if [[ "$ACTION" == "reinstall" ]]; then
+        if [[ -d "$DIR" ]]; then
+            ui_print red "重装会删除目标安装目录：$DIR"
+            ui_print yellow "如需保留数据，请先手动备份 data/xiuxian。"
+            read_or REINSTALL_CONFIRM "确认重装请输入 YES" "NO"
+            if [[ "$REINSTALL_CONFIRM" != "YES" ]]; then
+                ui_print yellow "已取消重装。"
+                exit 0
+            fi
+            rm -rf "$DIR" || {
+                show_status "删除旧安装目录 $DIR" "failure"
+                exit 127
+            }
+            show_status "删除旧安装目录 $DIR" "success"
+        fi
+        ACTION="install"
+    fi
 
     if [[ "$ACTION" == "update-deps" ]]; then
         upgrade_python_dependencies || exit 127
@@ -676,6 +764,14 @@ main() {
 
     if [[ "$ACTION" == "install" ]]; then
         write_env_files
+    elif [[ "$ACTION" == "update" ]]; then
+        if [[ ! -f "$DIR/.env.dev" ]]; then
+            ui_print yellow "未找到 $DIR/.env.dev，将创建默认配置。"
+            ensure_default_env_files || {
+                show_status "创建默认配置文件" "failure"
+                exit 127
+            }
+        fi
     fi
 
     write_command_scripts
