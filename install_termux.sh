@@ -321,26 +321,45 @@ test_proxy_url() {
     local proxy="$1"
     local url="$2"
     local full_url="${proxy}${url}"
+    local temp_file
     local cost
+    local magic=""
+
+    if ! command -v curl >/dev/null 2>&1; then
+        echo "999999"
+        return 1
+    fi
+
+    temp_file="$(mktemp)" || {
+        echo "999999"
+        return 1
+    }
 
     cost="$(
-        curl -L -I --connect-timeout 5 --max-time 8 -o /dev/null -s -w '%{time_total}' "$full_url" 2>/dev/null || true
+        curl -fL -r 0-4095 --connect-timeout 5 --max-time 12 -o "$temp_file" -s -w '%{time_total}' "$full_url" 2>/dev/null || true
     )"
-    if [[ -z "$cost" ]]; then
-        echo "999999"
-    else
+
+    if [[ -s "$temp_file" ]]; then
+        magic="$(head -c 2 "$temp_file" | od -An -tx1 | tr -d ' \n')"
+    fi
+    rm -f "$temp_file"
+
+    if [[ -n "$cost" && "$magic" == "1f8b" ]]; then
         awk -v n="$cost" 'BEGIN { printf "%d", n * 1000 }'
+    else
+        echo "999999"
     fi
 }
 
 select_proxy() {
     local release_url="https://github.com/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_TAG/download/$RELEASE_ASSET"
     local proxies=(
-        "https://gh.llkk.cc/"
-        "https://github.dpik.top/"
+        "https://gh-proxy.com/"
+        "https://gh.jasonzeng.dev/"
         "https://git.yylx.win/"
-        "https://ghfile.geekertao.top/"
-        "https://gh-proxy.net/"
+        "https://wget.la/"
+        "https://github.dpik.top/"
+        "https://ghproxy.imciel.com/"
     )
     local best_proxy=""
     local best_time=999999

@@ -245,53 +245,63 @@ compare_numbers() {
 # 测试代理
 test_proxy() {
     local proxy_url="$1"
-    local proxy_host
-    # 提取主机名
-    proxy_host=$(echo "$proxy_url" | sed -E 's|^https?://([^/]+).*|\1|')
+    local test_url="${2:-https://github.com/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_TAG/download/$RELEASE_ASSET}"
+    local full_url="${proxy_url}${test_url}"
+    local temp_file
+    local cost
+    local magic=""
 
-    if ! command -v ping &> /dev/null; then
-        echo "100" # 假设一个平均值
-        return 0
-    fi
-
-    local ping_time
-    # ping 1次，等待3秒
-    if ping -c 1 -W 3 "$proxy_host" &> /dev/null; then
-        ping_time=$(ping -c 1 -W 3 "$proxy_host" | grep 'time=' | sed -E 's/.*time=([0-9.]+).*/\1/')
-        [[ -z "$ping_time" ]] && ping_time="999" # 如果没提取到时间，设为999
-        echo "$ping_time"
-        return 0
-    else
-        echo "9999" # ping失败
+    if ! command -v curl &> /dev/null; then
+        echo "999999"
         return 1
     fi
+
+    temp_file="$(mktemp)" || {
+        echo "999999"
+        return 1
+    }
+
+    cost="$(
+        curl -fL -r 0-4095 --connect-timeout 5 --max-time 12 -o "$temp_file" -s -w '%{time_total}' "$full_url" 2>/dev/null || true
+    )"
+
+    if [[ -s "$temp_file" ]]; then
+        magic="$(head -c 2 "$temp_file" | od -An -tx1 | tr -d ' \n')"
+    fi
+    rm -f "$temp_file"
+
+    if [[ -n "$cost" && "$magic" == "1f8b" ]]; then
+        awk -v n="$cost" 'BEGIN { printf "%d", n * 1000 }'
+        return 0
+    fi
+
+    echo "999999"
+    return 1
 }
 
 # 获取可用代理列表
 get_available_proxies() {
     local proxies=(
-        "https://gh-proxy.net/"
-        "https://ghfile.geekertao.top/"
+        "https://gh-proxy.com/"
+        "https://gh.jasonzeng.dev/"
         "https://git.yylx.win/"
-        "https://gh.llkk.cc/"
-        "https://ghproxy.net/"
+        "https://wget.la/"
         "https://github.dpik.top/"
-        "https://hub.gitmirror.com/"
-        "https://gitproxy.click/"
+        "https://ghproxy.imciel.com/"
     )
 
     local proxy_latency=()
     local total=${#proxies[@]}
     local current=0
 
-    ui_print "yellow" "正在测试代理服务器连通性和延迟..."
+    ui_print "yellow" "正在测试代理服务器拼接下载可用性和延迟..."
     for proxy in "${proxies[@]}"; do
         current=$((current + 1))
         printf "\r${BLUE}进度: %d/%d - 测试 %s${NC}" "$current" "$total" "$proxy"
         latency=$(test_proxy "$proxy")
         proxy_latency+=("$latency:$proxy")
 
-        if (( $(compare_numbers "$latency" "<" "999") )); then
+        if (( $(compare_numbers "$latency" "<" "999999") )); then
             ui_print "green" "\n✓ $proxy 可达 (延迟: ${latency}ms)"
         else
             ui_print "red" "\n✗ $proxy 不可达"
@@ -302,7 +312,7 @@ get_available_proxies() {
     local available_proxies_with_latency=()
     for item in "${proxy_latency[@]}"; do
         latency=$(echo "$item" | cut -d':' -f1)
-        if (( $(compare_numbers "$latency" "<" "999") )); then
+        if (( $(compare_numbers "$latency" "<" "999999") )); then
             available_proxies_with_latency+=("$item")
         fi
     done
@@ -378,7 +388,7 @@ get_proxy_choice() {
             if [[ -n "$CUSTOM_PROXY" ]]; then
                 check_bc_command
                 latency=$(test_proxy "$CUSTOM_PROXY")
-                if (( $(compare_numbers "$latency" "<" "999") )); then
+                if (( $(compare_numbers "$latency" "<" "999999") )); then
                     PROXY="$CUSTOM_PROXY"
                     ui_print "green" "✓ 自定义代理可用：$PROXY"
                 else

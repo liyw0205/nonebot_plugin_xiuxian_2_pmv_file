@@ -415,10 +415,12 @@ set "test_url=https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv/releases/
 set "PS_MEASURE_PROXY=JABzAHcAIAA9ACAAWwBTAHkAcwB0AGUAbQAuAEQAaQBhAGcAbgBvAHMAdABpAGMAcwAuAFMAdABvAHAAdwBhAHQAYwBoAF0AOgA6AFMAdABhAHIAdABOAGUAdwAoACkACgB0AHIAeQAgAHsACgAgACAAIAAgACQAbgB1AGwAbAAgAD0AIABJAG4AdgBvAGsAZQAtAFcAZQBiAFIAZQBxAHUAZQBzAHQAIAAtAFUAcgBpACAAJABlAG4AdgA6AFAAUwBfAE0ARQBBAFMAVQBSAEUAXwBVAFIATAAgAC0ATQBlAHQAaABvAGQAIABIAGUAYQBkACAALQBUAGkAbQBlAG8AdQB0AFMAZQBjACAAOAAgAC0AVQBzAGUAQgBhAHMAaQBjAFAAYQByAHMAaQBuAGcACgAgACAAIAAgACQAcwB3AC4AUwB0AG8AcAAoACkACgAgACAAIAAgAFsAaQBuAHQAXQAkAHMAdwAuAEUAbABhAHAAcwBlAGQATQBpAGwAbABpAHMAZQBjAG8AbgBkAHMACgB9ACAAYwBhAHQAYwBoACAAewAKACAAIAAgACAAOQA5ADkAOQA5ADkACgB9AA=="
 
 for %%P in (
-    https://gh.llkk.cc/
-    https://github.dpik.top/
+    https://gh-proxy.com/
+    https://gh.jasonzeng.dev/
     https://git.yylx.win/
-    https://ghfile.geekertao.top/
+    https://wget.la/
+    https://github.dpik.top/
+    https://ghproxy.imciel.com/
 ) do (
     set "PS_MEASURE_URL=%%P%test_url%"
     for /f %%T in ('powershell.exe -NoP -NonI -EP Bypass -EncodedCommand "%PS_MEASURE_PROXY%"') do (
