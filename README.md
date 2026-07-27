@@ -1,114 +1,118 @@
 # nonebot_plugin_xiuxian_2_pmv_file
 
-## Debian / Linux 安装命令
+修仙 2 插件的**大文件 / Release 资产仓库**。
 
-`install.sh` 面向 Debian / Ubuntu / VPS 等常规 Linux 环境，默认目录为 `/root/xiu2`。
-当前版本使用本地 SQLite 数据库，脚本只负责安装运行环境、下载项目、安装 Python 依赖和生成 NoneBot 配置。
-不带参数运行时会进入交互菜单，可选择安装、重装、更新、更新依赖或退出。
+- 不放业务源码
+- 不放一键安装脚本（脚本在主仓库）
+- 只通过 GitHub Releases 分发 Docker 镜像分片、插件包、表情包、运行资源等
 
-```
-curl -fsSL https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv_file/raw/refs/heads/main/install.sh | bash
-```
+主仓库（代码 + 文档 + 安装脚本）：
 
-自定义目录：
+https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv
 
-```
-curl -fsSL https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv_file/raw/refs/heads/main/install.sh | bash -s -- install /root/xiuxian
-```
+---
 
-更新：
+## Releases 一览
 
-```
-curl -fsSL https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv_file/raw/refs/heads/main/install.sh | bash -s -- update
-```
+| Tag | 用途 |
+|-----|------|
+| [`docker-latest`](https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv_file/releases/tag/docker-latest) | Docker 底座分片 + 插件包 + `manifest.json` |
+| [`stickers-latest`](https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv_file/releases/tag/stickers-latest) | Web 消息面板表情包 |
+| [`v0`](https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv_file/releases/tag/v0) | 启动资源（如 `xiuxian.zip` 字体/图片等） |
 
-重装：
+Tag 名尽量固定（`*-latest` / `v0`），日常只**覆盖上传资产**，主仓库脚本与文档一般不用跟着改。
 
-```
-curl -fsSL https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv_file/raw/refs/heads/main/install.sh | bash -s -- reinstall
-```
+---
 
-单独更新依赖：
+## Docker（`docker-latest`）
 
-```
-curl -fsSL https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv_file/raw/refs/heads/main/install.sh | bash -s -- update-deps
-```
+采用 **base + plugin** 两层，避免每次小改都下完整镜像。
 
-## Termux 安装命令
+### 资产
 
-`install_termux.sh` 面向安卓 Termux 原生环境，不使用 `/root`、`/bin`、`/etc`，默认安装到 `$HOME/xiu2`，虚拟环境为 `$HOME/myenv`，管理命令写入 `$PREFIX/bin/xiu2`。
-当前版本使用本地 SQLite 数据库，不需要安装额外数据库服务。
-不带参数运行时会进入交互菜单，可选择安装、重装、更新、更新依赖或退出。
+| 文件 | 说明 |
+|------|------|
+| `manifest.json` | 总清单（md5 / 版本 / 分片列表） |
+| `xiuxian2-base-amd64.tar.gz.part00` ~ `partN` | 底座镜像分片（系统 + Python 依赖，变更少） |
+| `xiuxian2-base-amd64.tar.gz.md5` | 合并后整包 md5 |
+| `xiuxian2-base-amd64.tar.gz.partXX.md5` | 各分片 md5 |
+| `xiuxian2-plugin-latest.tar.gz` | **仅插件**单包（日常更新通常只下这个） |
+| `xiuxian2-plugin-latest.tar.gz.md5` | 插件包 md5 |
 
-安装：
+### 安装 / 更新（请用主仓库脚本）
 
-```
-curl -fsSL https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv_file/raw/refs/heads/main/install_termux.sh | bash
-```
+```bash
+# 安装
+curl -fsSL https://raw.githubusercontent.com/liyw0205/nonebot_plugin_xiuxian_2_pmv/main/scripts/install_docker.sh | bash
 
-自定义目录：
+# smart 更新：base 未变则只下 plugin
+curl -fsSL https://raw.githubusercontent.com/liyw0205/nonebot_plugin_xiuxian_2_pmv/main/scripts/install_docker.sh | bash -s -- update
 
-```
-curl -fsSL https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv_file/raw/refs/heads/main/install_termux.sh | bash -s -- install "$HOME/xiuxian"
-```
-
-更新：
-
-```
-curl -fsSL https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv_file/raw/refs/heads/main/install_termux.sh | bash -s -- update
+# 仅插件 / 强制整包
+bash install_docker.sh update --plugin
+bash install_docker.sh update --full
 ```
 
-重装：
+说明与目录结构见主仓库：
 
-```
-curl -fsSL https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv_file/raw/refs/heads/main/install_termux.sh | bash -s -- reinstall
-```
+- https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv/blob/main/docker/README.md
+- https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv/blob/main/scripts/install_docker.sh
 
-单独更新依赖：
+### 发布（维护者）
 
-```
-curl -fsSL https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv_file/raw/refs/heads/main/install_termux.sh | bash -s -- update-deps
-```
+在主仓库执行：
 
-Termux 安装完成后建议执行一次：
-
-```
-termux-wake-lock
+```bash
+bash scripts/build_docker_release.sh /tmp/xiuxian2-docker-split-release
+# 上传到本仓库 docker-latest（覆盖 clobber）
+# 日常只改插件：上传 plugin + 更新 manifest 即可
+# requirements / Dockerfile.base 变了：再上传 base 分片
 ```
 
-避免 Android 休眠时停止后台进程。如果 `termux-wake-lock` 执行失败，可安装 Termux:API 应用后重试；不使用也不影响安装，只影响后台保活。
+---
 
-## SQLite 数据库
+## 表情包（`stickers-latest`）
 
-插件默认使用本地 SQLite，数据库文件位于项目的 `data/xiuxian/` 目录，例如：
+| 文件 | 说明 |
+|------|------|
+| `stickers-manifest.json` | 套装清单 |
+| `stickers-kokomi.zip` | 心海 |
+| `stickers-doro.zip` | doro |
+| `stickers-miku.zip` | 初音 |
 
-- `xiuxian.db`
-- `xiuxian_impart.db`
-- `player.db`
-- `trade.db`
-- `message.db`
+Web 消息面板首次打开表情会按 manifest 下载并缓存到运行目录 `data/xiuxian/stickers/`。
 
-脚本不会写入数据库连接串，也不会启动外部数据库服务。更新和重装前建议先备份 `data/xiuxian/`；重装会删除目标安装目录，需要在二次确认时输入 `YES` 才会继续，虚拟环境目录不会随重装自动删除。
+---
 
-## Debian / Linux xiu 命令
+## 启动资源（`v0`）
 
+插件首次启动若检测不到必要资源（如字体），会自动下载本 tag 下的资源包（例如 `xiuxian.zip`）解压到 `data/`。
+
+- 资源在 data 卷里，**日常更新插件不会强制重下**
+- 只有清空 data / 新环境 / 关键文件缺失时才会再下
+
+---
+
+## 非 Docker 安装
+
+请使用**主仓库**脚本与文档，不要再从本仓库拉 `install.sh`：
+
+```bash
+# 以主仓库 README 为准
+https://github.com/liyw0205/nonebot_plugin_xiuxian_2_pmv
 ```
-用法: xiu2 [start|stop|status|update-deps|format [log_file]]
-  start     - 启动 xiu2（默认，无需参数）
-  status    - 查看 xiu2
-  stop      - 停止 xiu2
-  update-deps - 更新 Python 依赖到当前 pip 索引最新版本，并输出核心依赖安装路径
-  format [log_file] - 格式化日志文件
-```
 
-## Termux xiu 命令
+---
 
-```
-用法: xiu2 [start|stop|status|update|update-deps|format [log_file]]
-  start     - 后台启动 xiu2（默认，无需参数）
-  status    - 进入 screen 查看运行日志
-  stop      - 停止 xiu2
-  update    - 更新项目文件
-  update-deps - 更新 Python 依赖到当前 pip 索引最新版本，并输出核心依赖安装路径
-  format [log_file] - 格式化日志文件
-```
+## 仓库约定
+
+1. **主仓库**：源码、文档、`scripts/install_docker.sh`、`scripts/build_docker_release.sh`
+2. **本仓库**：仅 Releases 大文件；git 主分支保持轻量（可只有本 README）
+3. 凭据、密钥、用户数据禁止提交
+4. 大文件用 Release 覆盖上传，不把镜像/分片 commit 进 git
+
+---
+
+## License
+
+与主仓库插件许可保持一致；资产仅作对应插件分发使用。
